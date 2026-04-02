@@ -40,9 +40,10 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 # Copie explicite du client Prisma genere (le tracing standalone peut manquer les chemins custom)
 COPY --from=builder --chown=nextjs:nodejs /app/src/generated ./src/generated
-# Prisma schema + migrations + config for runtime migrate deploy
+# Prisma schema + migrations for runtime migrate deploy
+# Note: prisma.config.ts is NOT copied — it imports dotenv which isn't needed in production
+# (env vars are injected by Docker). Without it, Prisma uses default schema discovery.
 COPY --from=builder --chown=nextjs:nodejs /app/prisma ./prisma
-COPY --from=builder --chown=nextjs:nodejs /app/prisma.config.ts ./prisma.config.ts
 # Prisma CLI for runtime migrations — installed globally to avoid pnpm symlink issues
 RUN npm install -g prisma@6.19.2
 
