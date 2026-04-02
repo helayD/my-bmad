@@ -10,26 +10,13 @@ A web dashboard to visualize and track [BMAD (Breakthrough Method of Agile AI-Dr
 
 - [What is MyBMAD Dashboard?](#what-is-mybmad-dashboard)
 - [Tech Stack](#tech-stack)
-- [Prerequisites](#prerequisites)
-- [Local Development](#local-development)
-  - [1. Clone the repository](#1-clone-the-repository)
-  - [2. Install dependencies](#2-install-dependencies)
-  - [3. Set up environment variables](#3-set-up-environment-variables)
-  - [4. Start PostgreSQL with Docker Compose](#4-start-postgresql-with-docker-compose-optional)
-  - [5. Run database migrations](#5-run-database-migrations)
-  - [6. Create your first account](#6-create-your-first-account)
-  - [7. Start the development server](#7-start-the-development-server)
-- [Environment Variables Reference](#environment-variables-reference)
-- [Local Folder Import](#local-folder-import)
+- [Quick Start](#quick-start)
 - [Project Structure](#project-structure)
 - [Available Scripts](#available-scripts)
-- [Production Deployment (Docker)](#production-deployment-docker)
-- [Configuration](#configuration)
-- [API Endpoints](#api-endpoints)
+- [Production Deployment](#production-deployment-docker)
+- [Documentation](#documentation)
 - [Contributing](#contributing)
-- [Security](#security)
 - [License](#license)
-- [Acknowledgements](#acknowledgements)
 
 ---
 
@@ -39,7 +26,7 @@ MyBMAD Dashboard connects to your GitHub repositories (or local folders), reads 
 
 **Key features:**
 - Import any GitHub repository that follows the BMAD structure
-- **Import local folders** — no GitHub needed for self-hosted setups (see [Local Folder Import](#local-folder-import))
+- **Import local folders** — no GitHub needed for self-hosted setups ([learn more](./docs/LOCAL_FOLDER.md))
 - Visualize epic progress and story status at a glance
 - Support for chunked epics (individual files in `epics/` directory) as well as a single `epics.md`
 - Browse BMAD docs and planning artifacts directly in the app
@@ -68,7 +55,7 @@ MyBMAD Dashboard connects to your GitHub repositories (or local folders), reads 
 | Framework | [Next.js 16](https://nextjs.org) (App Router) |
 | Language | TypeScript |
 | Database | PostgreSQL + [Prisma](https://prisma.io) |
-| Auth | [Better Auth](https://better-auth.com) (GitHub OAuth) |
+| Auth | [Better Auth](https://better-auth.com) (email/password + GitHub OAuth) |
 | GitHub API | [@octokit/rest](https://github.com/octokit/rest.js) |
 | UI | React 19 + Tailwind CSS v4 + shadcn/ui |
 | Deployment | Docker + Traefik (automatic TLS) |
@@ -76,210 +63,30 @@ MyBMAD Dashboard connects to your GitHub repositories (or local folders), reads 
 
 ---
 
-## Prerequisites
+## Quick Start
 
-- **Node.js** 20+
-- **pnpm** 9+
-- **Docker** (for PostgreSQL, or use your own PostgreSQL 15+ instance)
-- A **GitHub OAuth App** — optional, only needed for GitHub login ([create one here](https://github.com/settings/developers))
-- A **GitHub Personal Access Token** — optional but recommended for rate limits when importing GitHub repos
-
----
-
-## Local Development
-
-### 1. Clone the repository
+> Full guide with all environment variables explained: **[docs/GETTING_STARTED.md](./docs/GETTING_STARTED.md)**
 
 ```bash
 git clone https://github.com/DevHDI/my-bmad.git
 cd my-bmad
-```
-
-### 2. Install dependencies
-
-```bash
 pnpm install
-```
 
-### 3. Set up environment variables
-
-**Quick method** — auto-generates secrets for you:
-
-```bash
+# Auto-generate .env with secrets
 bash scripts/setup.sh
-```
 
-**Manual method** — copy the template and edit by hand:
-
-```bash
-cp .env.example .env
-```
-
-Then fill in each variable as described below.
-
-#### Database (`DATABASE_URL`)
-
-If you use the included Docker Compose (step 4), the default value works out of the box:
-
-```
-DATABASE_URL=postgresql://bmad:bmad_dev_password@localhost:5433/bmad_dashboard
-```
-
-The format is `postgresql://<user>:<password>@<host>:<port>/<database>`. Adjust if you use your own PostgreSQL instance.
-
-#### Auth secret (`BETTER_AUTH_SECRET`)
-
-A random string used to sign session tokens. Generate one with:
-
-```bash
-openssl rand -base64 32
-```
-
-Paste the output as the value. Any long random string works.
-
-#### App URL (`BETTER_AUTH_URL`)
-
-The base URL where your app runs. For local development:
-
-```
-BETTER_AUTH_URL=http://localhost:3002
-```
-
-In production, set this to your real domain (e.g. `https://mybmad.example.com`).
-
-#### Revalidation secret (`REVALIDATE_SECRET`)
-
-A random string to protect the cache revalidation API endpoint. Generate one with:
-
-```bash
-openssl rand -hex 32
-```
-
-#### GitHub OAuth App (`GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET`)
-
-Required for "Login with GitHub". Follow these steps:
-
-1. Go to [github.com/settings/developers](https://github.com/settings/developers)
-2. Click **New OAuth App**
-3. Fill in the form:
-   - **Application name:** `MyBMAD` (or anything you like)
-   - **Homepage URL:** `http://localhost:3002`
-   - **Authorization callback URL:** `http://localhost:3002/api/auth/callback/github`
-4. Click **Register application**
-5. Copy the **Client ID** into `GITHUB_CLIENT_ID`
-6. Click **Generate a new client secret**, copy it into `GITHUB_CLIENT_SECRET`
-
-#### GitHub Personal Access Token (`GITHUB_PAT`) — optional
-
-Without a PAT, the GitHub API allows only 60 requests/hour. With one, you get 5,000/hour. Recommended if you import multiple repositories.
-
-1. Go to [github.com/settings/tokens](https://github.com/settings/tokens)
-2. Click **Generate new token (classic)**
-3. Select scopes:
-   - `public_repo` — for public repositories only
-   - `repo` — if you also need private repositories
-4. Copy the token into `GITHUB_PAT`
-
-### 4. Start PostgreSQL with Docker Compose (optional)
-
-If you don't have a local PostgreSQL instance:
-
-```bash
+# Start PostgreSQL
 docker compose up -d
-```
 
-This starts a PostgreSQL instance on port `5433` (to avoid conflicts with a local PostgreSQL on 5432).
-
-### 5. Run database migrations
-
-```bash
+# Run migrations & create admin
 pnpm db:migrate
-```
+pnpm db:create-admin --email you@example.com --password your_password --name Admin
 
-### 6. Create your first account
-
-**Option A** — enable registration in `.env`, then sign up from the web UI:
-
-```
-ALLOW_REGISTRATION=true
-```
-
-After creating your account, you can set it back to `false`.
-
-**Option B** — create an admin directly from the command line:
-
-```bash
-pnpm db:create-admin --email admin@example.com --password your_password --name Admin
-```
-
-### 7. Start the development server
-
-```bash
+# Start dev server
 pnpm dev
 ```
 
-Open [http://localhost:3002](http://localhost:3002) — log in and start importing repositories.
-
-> **Note:** The dev server runs on port **3002** (configured in `package.json`). If you set up GitHub OAuth, make sure the callback URL matches this port.
-
----
-
-## Environment Variables Reference
-
-| Variable | Required | Default / How to generate | Description |
-|---|---|---|---|
-| `DATABASE_URL` | Yes | `postgresql://bmad:bmad_dev_password@localhost:5433/bmad_dashboard` | PostgreSQL connection string. Works out of the box with the included Docker Compose. |
-| `BETTER_AUTH_SECRET` | Yes | `openssl rand -base64 32` | Random string to sign session tokens. |
-| `BETTER_AUTH_URL` | Yes | `http://localhost:3002` | Base URL where the app is running. |
-| `REVALIDATE_SECRET` | Yes | `openssl rand -hex 32` | Secret to protect the cache revalidation endpoint. |
-| `GITHUB_CLIENT_ID` | No | — | GitHub OAuth App Client ID. Only needed for "Login with GitHub". |
-| `GITHUB_CLIENT_SECRET` | No | — | GitHub OAuth App Client Secret. |
-| `GITHUB_PAT` | No | — | Personal Access Token for higher GitHub API rate limits (60 → 5,000 req/h). |
-| `ALLOW_REGISTRATION` | No | `false` | Set to `true` to allow new users to sign up via email/password. |
-| `ENABLE_LOCAL_FS` | No | `false` | Set to `true` to enable [local folder imports](#local-folder-import). |
-
-> The `scripts/setup.sh` script auto-generates `BETTER_AUTH_SECRET` and `REVALIDATE_SECRET` for you.
-
----
-
-## Local Folder Import
-
-When self-hosting MyBMAD on the same machine where your BMAD projects live, you can import them directly from the filesystem — no GitHub needed.
-
-### Enabling
-
-Set the following in your `.env`:
-
-```
-ENABLE_LOCAL_FS=true
-```
-
-Restart the dev server after changing this value.
-
-### How it works
-
-1. Click **"Add a project"** in the dashboard
-2. A **"Local Folder"** tab appears alongside the GitHub tab
-3. Enter the **absolute path** to your project folder (e.g. `/home/user/my-project`)
-4. The system validates that the folder contains a `_bmad/` or `_bmad-output/` directory
-5. The project is imported and appears in your dashboard just like a GitHub repo
-
-Once imported, you can browse epics, stories, and docs exactly as you would with a GitHub project. Use the **Refresh** action to re-scan the folder when files change.
-
-### Security
-
-The local provider includes multiple safety guards:
-- **Path traversal protection** — rejects `..`, null bytes, and special characters
-- **No symlink access** — symbolic links are skipped at every level
-- **File size limit** — 10 MB per file (prevents memory exhaustion)
-- **File count limit** — 10,000 files max per project
-- **Depth limit** — 20 directory levels max
-
-### Limitations
-
-- Only works when the Next.js server runs on the **same machine** as the project files
-- No branch/version support — local folders are a live snapshot
-- If you move or rename the folder, you need to re-import it
+Open [http://localhost:3002](http://localhost:3002) and log in.
 
 ---
 
@@ -317,6 +124,7 @@ my-bmad/
 ├── docker/
 │   ├── docker-compose.prod.yml # Production Docker Compose
 │   └── DEPLOY.md               # Production deployment guide
+├── docs/                       # Documentation
 ├── _bmad/                      # BMAD methodology system (used to build this app)
 └── _bmad-output/               # Planning artifacts generated during development
 ```
@@ -326,7 +134,7 @@ my-bmad/
 ## Available Scripts
 
 ```bash
-pnpm dev              # Start development server
+pnpm dev              # Start development server (port 3002)
 pnpm build            # Build for production
 pnpm start            # Start production server
 pnpm lint             # Run ESLint
@@ -360,60 +168,16 @@ The stack includes:
 
 ---
 
-## Configuration
+## Documentation
 
-### Making yourself an admin
-
-After your first login, open Prisma Studio to set your role:
-
-```bash
-pnpm db:studio
-```
-
-Find your user in the `users` table and change `role` from `"user"` to `"admin"`.
-
-### GitHub Personal Access Token
-
-A PAT is optional but highly recommended to avoid GitHub API rate limits (60 req/h unauthenticated vs 5000 req/h authenticated). Required scopes:
-- `repo` — for private repositories
-- `public_repo` — for public repositories only
-
----
-
-## API Endpoints
-
-### POST `/api/revalidate`
-
-Triggers cache revalidation for a specific tag. Requires authentication via the `x-revalidate-secret` header.
-
-**Headers:**
-- `x-revalidate-secret` (required): Must match the `REVALIDATE_SECRET` environment variable
-
-**Body (JSON):**
-```json
-{ "tag": "repo-owner-name" }
-```
-
-**Example:**
-```bash
-curl -X POST https://mybmad.example.com/api/revalidate \
-  -H "Content-Type: application/json" \
-  -H "x-revalidate-secret: your_secret_here" \
-  -d '{"tag": "repo-owner-name"}'
-```
-
-**Responses:**
-- `200 OK` — `{ "revalidated": true, "now": <timestamp> }`
-- `401 Unauthorized` — Invalid or missing secret
-- `503 Service Unavailable` — Revalidation is disabled (no secret configured)
-
-### GET `/api/health`
-
-Health check endpoint for monitoring and load balancers.
-
-**Responses:**
-- `200 OK` — `{ "status": "ok" }`
-- `503 Service Unavailable` — `{ "status": "error" }`
+| Document | Description |
+|----------|-------------|
+| [Getting Started](./docs/GETTING_STARTED.md) | Full local setup guide with all environment variables |
+| [Local Folder Import](./docs/LOCAL_FOLDER.md) | Import BMAD projects from the filesystem without GitHub |
+| [API Endpoints](./docs/API.md) | REST API reference (revalidation, health check) |
+| [Production Deployment](./docker/DEPLOY.md) | Docker + Traefik deployment guide |
+| [Contributing](./CONTRIBUTING.md) | How to contribute to the project |
+| [Security](./SECURITY.md) | Vulnerability reporting policy |
 
 ---
 
