@@ -14,7 +14,6 @@ process.env.ALLOW_REGISTRATION = "true";
 
 import { prisma } from "../src/lib/db/client";
 import { auth } from "../src/lib/auth/auth";
-import { headers as nextHeaders } from "next/headers";
 
 function parseArgs(): { email: string; password: string; name: string } {
   const args = process.argv.slice(2);

@@ -15,6 +15,7 @@ import {
 const mockTree = getCachedUserRepoTree as ReturnType<typeof vi.fn>;
 const mockContent = getCachedUserRawContent as ReturnType<typeof vi.fn>;
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const fakeOctokit = {} as any;
 
 beforeEach(() => {

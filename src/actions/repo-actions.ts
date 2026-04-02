@@ -8,7 +8,6 @@ import {
   getCachedUserRepoTree,
   getCachedUserRawContent,
 } from "@/lib/github/client";
-import { createContentProvider } from "@/lib/content-provider";
 import { LocalProvider } from "@/lib/content-provider/local-provider";
 import { buildFileTree } from "@/lib/bmad/utils";
 import { parseBmadFile } from "@/lib/bmad/parser";
@@ -20,7 +19,7 @@ import { createHash } from "node:crypto";
 import path from "node:path";
 import type { GitHubRepo } from "@/lib/github/types";
 import type { FileTreeNode, ParsedBmadFile } from "@/lib/bmad/types";
-import type { ActionResult, SourceType } from "@/lib/types";
+import type { ActionResult } from "@/lib/types";
 import { sanitizeError } from "@/lib/errors";
 import { checkRateLimit } from "@/lib/rate-limit";
 
