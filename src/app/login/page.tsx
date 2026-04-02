@@ -1,6 +1,8 @@
 import { Suspense } from "react";
 import { LoginForm } from "./login-form";
 
+export const dynamic = "force-dynamic";
+
 export default function LoginPage() {
   const githubEnabled =
     !!process.env.GITHUB_CLIENT_ID && !!process.env.GITHUB_CLIENT_SECRET;
