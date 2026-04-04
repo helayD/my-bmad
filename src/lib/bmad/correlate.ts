@@ -58,6 +58,9 @@ export function correlate(
     }
   }
 
+  // Deduplicate: storyMap holds the authoritative (sprint-updated) version of each story
+  mutableStories = [...storyMap.values()];
+
   // Build a map of epic statuses from sprint-status.yaml
   const epicStatusMap = new Map<string, EpicStatus>();
   if (epicStatuses) {

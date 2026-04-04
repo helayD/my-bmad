@@ -1,5 +1,5 @@
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
-import { AppSidebar } from "@/components/layout/app-sidebar";
+import { AppSidebarClient } from "@/components/layout/app-sidebar-client";
 import { AppHeader } from "@/components/layout/app-header";
 import { BreadcrumbProvider } from "@/contexts/breadcrumb-context";
 import { redirect } from "next/navigation";
@@ -29,7 +29,7 @@ export default async function DashboardLayout({
   return (
     <BreadcrumbProvider>
       <SidebarProvider>
-        <AppSidebar
+        <AppSidebarClient
           repos={repos}
           userEmail={session.email}
           localFsEnabled={localFsEnabled}

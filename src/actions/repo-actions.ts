@@ -9,7 +9,14 @@ import {
   getCachedUserRawContent,
 } from "@/lib/github/client";
 import { LocalProvider } from "@/lib/content-provider/local-provider";
-import { buildFileTree } from "@/lib/bmad/utils";
+import {
+  BMAD_CORE_DIR,
+  BMAD_IMPLEMENTATION_DIR,
+  BMAD_OUTPUT_DIR,
+  BMAD_PLANNING_DIR,
+  buildFileTree,
+  detectBmadOutputDir,
+} from "@/lib/bmad/utils";
 import { parseBmadFile } from "@/lib/bmad/parser";
 import { prisma } from "@/lib/db/client";
 import { getAuthenticatedSession } from "@/lib/db/helpers";
@@ -26,8 +33,23 @@ import { checkRateLimit } from "@/lib/rate-limit";
 // GraphQL can handle ~30 repos per query safely (GitHub complexity limits)
 const GRAPHQL_BATCH_SIZE = 30;
 
-const BMAD_OUTPUT = "_bmad-output";
-const BMAD_CORE = "_bmad";
+function getLocalBmadFiles(allPaths: string[]) {
+  const outputDir = detectBmadOutputDir(allPaths);
+  const bmadFiles = allPaths.filter((p) => p.startsWith(outputDir + "/"));
+  return { outputDir, bmadFiles };
+}
+
+function hasLocalBmadStructure(rootDirectories: string[], allPaths: string[]): boolean {
+  if (rootDirectories.includes(BMAD_CORE_DIR) || rootDirectories.includes(BMAD_OUTPUT_DIR)) {
+    return true;
+  }
+
+  return rootDirectories.some(
+    (dirName) =>
+      allPaths.some((p) => p.startsWith(`${dirName}/${BMAD_PLANNING_DIR}/`)) ||
+      allPaths.some((p) => p.startsWith(`${dirName}/${BMAD_IMPLEMENTATION_DIR}/`))
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Auth helpers
@@ -364,7 +386,8 @@ async function refreshLocalRepo(
     await provider.validateRoot();
 
     const tree = await provider.getTree();
-    const totalFiles = tree.paths.filter((p) => p.startsWith("_bmad-output/")).length;
+    const { bmadFiles } = getLocalBmadFiles(tree.paths);
+    const totalFiles = bmadFiles.length;
 
     const now = new Date();
     await prisma.repo.update({
@@ -409,9 +432,11 @@ async function refreshGitHubRepo(
     recursive: "1",
   });
 
-  const totalFiles = tree.tree.filter(
-    (item) => item.type === "blob" && item.path?.startsWith("_bmad-output/")
-  ).length;
+  const allPaths = tree.tree
+    .filter((item): item is typeof item & { path: string } => item.type === "blob" && !!item.path)
+    .map((item) => item.path);
+  const { bmadFiles } = getLocalBmadFiles(allPaths);
+  const totalFiles = bmadFiles.length;
 
   const now = new Date();
   await prisma.repo.update({
@@ -499,11 +524,11 @@ async function fetchBmadFilesLocal(localPath: string) {
   const providerTree = await provider.getTree();
   const allPaths = providerTree.paths;
 
-  const bmadPaths = allPaths.filter((p) => p.startsWith(BMAD_OUTPUT + "/"));
-  const fileTree = buildFileTree(bmadPaths, BMAD_OUTPUT);
+  const { outputDir, bmadFiles } = getLocalBmadFiles(allPaths);
+  const fileTree = buildFileTree(bmadFiles, outputDir);
 
-  const bmadCorePaths = allPaths.filter((p) => p.startsWith(BMAD_CORE + "/"));
-  const bmadCoreTree = buildFileTree(bmadCorePaths, BMAD_CORE);
+  const bmadCorePaths = allPaths.filter((p) => p.startsWith(BMAD_CORE_DIR + "/"));
+  const bmadCoreTree = buildFileTree(bmadCorePaths, BMAD_CORE_DIR);
 
   // F20/F35: Detect docs/ via rootDirectories
   const docsFolderName = providerTree.rootDirectories.find(
@@ -516,7 +541,7 @@ async function fetchBmadFilesLocal(localPath: string) {
       )
     : [];
 
-  return { success: true as const, data: { fileTree, docsTree, bmadCoreTree, bmadFiles: bmadPaths } };
+  return { success: true as const, data: { fileTree, docsTree, bmadCoreTree, bmadFiles } };
 }
 
 async function fetchBmadFilesGitHub(
@@ -542,11 +567,11 @@ async function fetchBmadFilesGitHub(
     .filter((item) => item.type === "blob")
     .map((item) => item.path);
 
-  const bmadPaths = allPaths.filter((p) => p.startsWith(BMAD_OUTPUT + "/"));
-  const fileTree = buildFileTree(bmadPaths, BMAD_OUTPUT);
+  const { outputDir, bmadFiles } = getLocalBmadFiles(allPaths);
+  const fileTree = buildFileTree(bmadFiles, outputDir);
 
-  const bmadCorePaths = allPaths.filter((p) => p.startsWith(BMAD_CORE + "/"));
-  const bmadCoreTree = buildFileTree(bmadCorePaths, BMAD_CORE);
+  const bmadCorePaths = allPaths.filter((p) => p.startsWith(BMAD_CORE_DIR + "/"));
+  const bmadCoreTree = buildFileTree(bmadCorePaths, BMAD_CORE_DIR);
 
   // F20/F35: Detect docs/ via rootDirectories (from tree items)
   const docsFolder = tree.tree.find(
@@ -563,7 +588,7 @@ async function fetchBmadFilesGitHub(
       )
     : [];
 
-  return { success: true as const, data: { fileTree, docsTree, bmadCoreTree, bmadFiles: bmadPaths } };
+  return { success: true as const, data: { fileTree, docsTree, bmadCoreTree, bmadFiles } };
 }
 
 const fetchFileContentSchema = z.object({
@@ -742,36 +767,28 @@ export async function importLocalFolder(input: {
   }
 
   try {
-    // F2: Delegate all FS operations to LocalProvider
-    const provider = new LocalProvider(parsed.data.localPath);
-    await provider.validateRoot();
+    const rootProvider = new LocalProvider(parsed.data.localPath);
+    await rootProvider.validateRoot();
 
-    const providerTree = await provider.getTree();
-
-    // F36: Check for _bmad or _bmad-output in rootDirectories
-    const hasBmad = providerTree.rootDirectories.some(
-      (d) => d === "_bmad" || d === "_bmad-output"
-    );
-    if (!hasBmad) {
+    const resolvedRoot = await rootProvider.getProjectRoot();
+    const bmadTree = await rootProvider.getTree();
+    if (!hasLocalBmadStructure(bmadTree.rootDirectories, bmadTree.paths)) {
       return {
         success: false,
-        error: "No _bmad or _bmad-output directory found in this folder.",
+        error: "No BMAD structure found. Expected _bmad/, _bmad-output/, or a directory containing planning-artifacts/ or implementation-artifacts/.",
         code: "NO_BMAD",
       };
     }
+    const { bmadFiles } = getLocalBmadFiles(bmadTree.paths);
 
-    // F7/F19/F45: URL-safe name with collision-resistant hash
-    const rawBasename = path.basename(parsed.data.localPath);
+    // F7/F19/F45: URL-safe name + collision-resistant hash based on project root
+    const rawBasename = path.basename(resolvedRoot);
     const sanitizedBasename = sanitizeBasename(rawBasename);
-    const hash = shortHash(parsed.data.localPath);
+    const hash = shortHash(resolvedRoot);
     const repoName = `${sanitizedBasename}-${hash}`;
 
-    // F11: displayName fallback to raw basename
+    // F11: displayName from project root basename
     const displayName = parsed.data.displayName ?? rawBasename;
-
-    const bmadOutputCount = providerTree.paths.filter(
-      (p) => p.startsWith("_bmad-output/")
-    ).length;
 
     const repo = await prisma.repo.create({
       data: {
@@ -780,8 +797,8 @@ export async function importLocalFolder(input: {
         branch: "local",
         displayName,
         sourceType: "local",
-        localPath: parsed.data.localPath,
-        totalFiles: bmadOutputCount,
+        localPath: resolvedRoot,
+        totalFiles: bmadFiles.length,
         lastSyncedAt: new Date(),
         userId,
       },
@@ -808,8 +825,260 @@ export async function importLocalFolder(input: {
     if (msg === "LOCAL_DISABLED") {
       return { success: false, error: sanitizeError(error, "LOCAL_DISABLED"), code: "LOCAL_DISABLED" };
     }
+    if (msg.startsWith("File count exceeds limit")) {
+      return { success: false, error: "This folder contains too many files (limit: 10 000). Consider pointing to a sub-directory that contains the BMAD output.", code: "FS_ERROR" };
+    }
     return { success: false, error: sanitizeError(error, "FS_ERROR"), code: "FS_ERROR" };
   }
+}
+
+// ---------------------------------------------------------------------------
+// Local directory scanner
+// ---------------------------------------------------------------------------
+
+/**
+ * Scan a parent directory for immediate subdirectories that contain _bmad or _bmad-output.
+ * Returns a list of discovered project paths with their names.
+ */
+export async function scanLocalDirectory(input: {
+  parentPath: string;
+}): Promise<ActionResult<{ path: string; name: string }[]>> {
+  if (process.env.ENABLE_LOCAL_FS !== "true") {
+    return { success: false, error: sanitizeError(null, "LOCAL_DISABLED"), code: "LOCAL_DISABLED" };
+  }
+
+  const parsed = z.object({
+    parentPath: z
+      .string()
+      .min(1)
+      .max(4096)
+      .trim()
+      .refine((p) => !p.includes("\0"), { message: "Invalid path" })
+      .refine((p) => !/(?:^|[\\/])\.\.(?:[\\/]|$)/.test(p), { message: "Invalid path" }),
+  }).safeParse(input);
+  if (!parsed.success) {
+    return { success: false, error: "Invalid path", code: "VALIDATION_ERROR" };
+  }
+
+  const authResult = await requireAuthenticated();
+  if (!authResult.success) return authResult;
+
+  const resolvedParent = path.resolve(parsed.data.parentPath);
+
+  try {
+    const { readdir, stat } = await import("node:fs/promises");
+
+    // Check the parent path exists and is a directory
+    let parentStat;
+    try {
+      parentStat = await stat(resolvedParent);
+    } catch {
+      return { success: false, error: "Path not found", code: "PATH_NOT_FOUND" };
+    }
+    if (!parentStat.isDirectory()) {
+      return { success: false, error: "Path is not a directory", code: "PATH_NOT_FOUND" };
+    }
+
+    const hasBmadStructure = async (dir: string): Promise<boolean> => {
+      try {
+        const dirEntries = await readdir(dir, { withFileTypes: true });
+        // Direct BMAD dirs
+        if (dirEntries.some((e) => e.isDirectory() && (e.name === "_bmad" || e.name === "_bmad-output"))) {
+          return true;
+        }
+        // Any subdir containing planning-artifacts or implementation-artifacts
+        for (const e of dirEntries) {
+          if (!e.isDirectory() || e.name.startsWith(".")) continue;
+          try {
+            const subEntries = await readdir(path.join(dir, e.name), { withFileTypes: true });
+            if (subEntries.some((se) => se.isDirectory() && (se.name === "planning-artifacts" || se.name === "implementation-artifacts"))) {
+              return true;
+            }
+          } catch { /* skip */ }
+        }
+      } catch { /* skip */ }
+      return false;
+    };
+
+    const results: { path: string; name: string }[] = [];
+
+    // Check if the path itself is a BMAD project
+    const selfIsBmad = await hasBmadStructure(resolvedParent);
+    if (selfIsBmad) {
+      results.push({ path: resolvedParent, name: path.basename(resolvedParent) });
+      return { success: true, data: results };
+    }
+
+    // Otherwise scan immediate subdirectories
+    const entries = await readdir(resolvedParent, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      if (entry.name.startsWith(".")) continue;
+
+      const subPath = path.join(resolvedParent, entry.name);
+      if (await hasBmadStructure(subPath)) {
+        results.push({ path: subPath, name: entry.name });
+      }
+    }
+
+    return { success: true, data: results };
+  } catch (error: unknown) {
+    return { success: false, error: sanitizeError(error, "FS_ERROR"), code: "FS_ERROR" };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Local path autocomplete
+// ---------------------------------------------------------------------------
+
+/**
+ * Given a partial path, return immediate subdirectory names of the parent that
+ * match the typed prefix. Used for filesystem path autocomplete in the UI.
+ */
+export async function autocompleteLocalPath(input: {
+  partial: string;
+}): Promise<ActionResult<{ dirs: string[]; base: string }>> {
+  if (process.env.ENABLE_LOCAL_FS !== "true") {
+    return { success: false, error: sanitizeError(null, "LOCAL_DISABLED"), code: "LOCAL_DISABLED" };
+  }
+
+  const authResult = await requireAuthenticated();
+  if (!authResult.success) return authResult;
+
+  const raw = (input.partial ?? "").trimStart();
+  if (!raw || raw.includes("\0")) {
+    return { success: true, data: { dirs: [], base: raw } };
+  }
+
+  try {
+    const { readdir, stat } = await import("node:fs/promises");
+
+    const resolved = path.resolve(raw);
+
+    // If `raw` ends with a separator or refers to an existing directory,
+    // list its children. Otherwise, list the parent and filter by prefix.
+    let searchDir: string;
+    let prefix: string;
+
+    let isSelfDir = false;
+    try {
+      isSelfDir = (await stat(resolved)).isDirectory();
+    } catch { /* not found or not a dir */ }
+
+    if (isSelfDir && (raw.endsWith("/") || raw.endsWith(path.sep))) {
+      searchDir = resolved;
+      prefix = "";
+    } else if (isSelfDir) {
+      // Treat as a directory, list its children with no prefix
+      searchDir = resolved;
+      prefix = "";
+    } else {
+      searchDir = path.dirname(resolved);
+      prefix = path.basename(resolved).toLowerCase();
+    }
+
+    let entries: import("node:fs").Dirent[];
+    try {
+      entries = await readdir(searchDir, { withFileTypes: true });
+    } catch {
+      return { success: true, data: { dirs: [], base: raw } };
+    }
+
+    const dirs = entries
+      .filter((e) => e.isDirectory() && !e.name.startsWith(".") && e.name.toLowerCase().startsWith(prefix))
+      .map((e) => path.join(searchDir, e.name))
+      .slice(0, 12);
+
+    return { success: true, data: { dirs, base: raw } };
+  } catch {
+    return { success: true, data: { dirs: [], base: raw } };
+  }
+}
+
+/**
+ * Given a bare folder name and a list of its immediate children (used as a
+ * content fingerprint), search well-known developer directories for the best
+ * matching subdirectory. Returns candidates sorted by fingerprint score so
+ * the closest match comes first.
+ *
+ * Used when the browser folder picker can only provide the folder name and
+ * file listing, not the full absolute path.
+ */
+export async function resolveDirectoryByContents(input: {
+  name: string;
+  entries: string[];
+}): Promise<ActionResult<string[]>> {
+  if (process.env.ENABLE_LOCAL_FS !== "true") {
+    return { success: false, error: sanitizeError(null, "LOCAL_DISABLED"), code: "LOCAL_DISABLED" };
+  }
+
+  const authResult = await requireAuthenticated();
+  if (!authResult.success) return authResult;
+
+  const name = (input.name ?? "").trim();
+  if (!name || name.includes("/") || name.includes("\\") || name.includes("..") || name.includes("\0")) {
+    return { success: false, error: "Invalid name", code: "VALIDATION_ERROR" };
+  }
+  const entries = (input.entries ?? []).filter(
+    (e) => typeof e === "string" && e.length > 0 && !e.includes("\0")
+  );
+
+  const homeDir = process.env.HOME ?? process.env.USERPROFILE ?? "/";
+
+  // Search roots: common single-level + well-known two-level developer paths
+  const searchRoots = [
+    homeDir,
+    path.join(homeDir, "Documents"),
+    path.join(homeDir, "Desktop"),
+    path.join(homeDir, "Projects"),
+    path.join(homeDir, "Developer"),
+    path.join(homeDir, "workspace"),
+    path.join(homeDir, "repos"),
+    path.join(homeDir, "code"),
+    path.join(homeDir, "src"),
+    // Two-level nesting (GitHub/GitLab hosting conventions)
+    path.join(homeDir, "Documents", "GitHub"),
+    path.join(homeDir, "Documents", "GitLab"),
+    path.join(homeDir, "Documents", "Repositories"),
+    path.join(homeDir, "Documents", "Projects"),
+    path.join(homeDir, "Developer", "Projects"),
+    path.join(homeDir, "Developer", "repos"),
+    path.join(homeDir, "Developer", "GitHub"),
+    path.join(homeDir, "Desktop", "Projects"),
+    process.cwd(),
+    path.dirname(process.cwd()),
+  ];
+
+  const { stat, readdir } = await import("node:fs/promises");
+  const entrySet = new Set(entries);
+  const candidates: { resolvedPath: string; score: number }[] = [];
+
+  for (const root of searchRoots) {
+    const candidate = path.join(root, name);
+    try {
+      const s = await stat(candidate);
+      if (!s.isDirectory()) continue;
+      const resolved = path.resolve(candidate);
+      if (candidates.some((c) => c.resolvedPath === resolved)) continue;
+
+      // Score: count how many provided entries exist inside this directory
+      let score = 0;
+      if (entries.length > 0) {
+        try {
+          const dirEntries = await readdir(resolved);
+          const dirSet = new Set(dirEntries);
+          for (const e of entrySet) {
+            if (dirSet.has(e)) score++;
+          }
+        } catch { /* skip scoring on unreadable dirs */ }
+      }
+      candidates.push({ resolvedPath: resolved, score });
+    } catch { /* directory not found at this root */ }
+  }
+
+  // Best match first (highest fingerprint score)
+  candidates.sort((a, b) => b.score - a.score);
+  return { success: true, data: candidates.map((c) => c.resolvedPath) };
 }
 
 // ---------------------------------------------------------------------------

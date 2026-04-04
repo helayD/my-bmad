@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
   Dialog,
@@ -30,6 +30,9 @@ import {
   detectBmadRepos,
   importRepo,
   importLocalFolder,
+  scanLocalDirectory,
+  autocompleteLocalPath,
+  resolveDirectoryByContents,
 } from "@/actions/repo-actions";
 import type { GitHubRepo } from "@/lib/github/types";
 
@@ -382,6 +385,195 @@ function GitHubRepoList({
   );
 }
 
+function PathInput({
+  value,
+  onChange,
+  disabled,
+  placeholder,
+  onSelect,
+  className,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  disabled?: boolean;
+  placeholder?: string;
+  onSelect?: (v: string) => void;
+  className?: string;
+}) {
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [open, setOpen] = useState(false);
+  const [activeIdx, setActiveIdx] = useState(-1);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    function onClickOutside(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
+  }, []);
+
+  function fetchSuggestions(partial: string) {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (!partial.trim()) { setSuggestions([]); setOpen(false); return; }
+    debounceRef.current = setTimeout(async () => {
+      const res = await autocompleteLocalPath({ partial });
+      if (res.success && res.data.dirs.length > 0) {
+        setSuggestions(res.data.dirs);
+        setOpen(true);
+        setActiveIdx(-1);
+      } else {
+        setSuggestions([]);
+        setOpen(false);
+      }
+    }, 220);
+  }
+
+  function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
+    onChange(e.target.value);
+    fetchSuggestions(e.target.value);
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (!open || suggestions.length === 0) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setActiveIdx((i) => Math.min(i + 1, suggestions.length - 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setActiveIdx((i) => Math.max(i - 1, -1));
+    } else if (e.key === "Enter" && activeIdx >= 0) {
+      e.preventDefault();
+      pick(suggestions[activeIdx]);
+    } else if (e.key === "Escape") {
+      setOpen(false);
+    } else if (e.key === "Tab" && activeIdx >= 0) {
+      e.preventDefault();
+      pick(suggestions[activeIdx]);
+    }
+  }
+
+  function pick(dir: string) {
+    const withSlash = dir.endsWith("/") ? dir : dir + "/";
+    onChange(withSlash);
+    onSelect?.(withSlash);
+    setSuggestions([]);
+    setOpen(false);
+    fetchSuggestions(withSlash);
+  }
+
+  function handleBrowseClick() {
+    fileInputRef.current?.click();
+  }
+
+  async function handleFileInput(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    const firstFile = files[0];
+    // Non-standard .path property available in Electron and some local envs
+    const absoluteFilePath: string | undefined = (firstFile as File & { path?: string }).path;
+    if (absoluteFilePath) {
+      // Derive folder path by stripping the relative sub-path below the picked root
+      const relParts = firstFile.webkitRelativePath.split("/");
+      // absoluteFilePath ends with webkitRelativePath (OS sep = /)
+      // folderPath = the part before webkitRelativePath, then append the root folder name
+      const base = absoluteFilePath.slice(0, absoluteFilePath.length - firstFile.webkitRelativePath.length);
+      const folderPath = (base + relParts[0]).replace(/\/$/, "");
+      onChange(folderPath);
+      fetchSuggestions(folderPath);
+    } else {
+      // Fallback: only name + file listing available from the browser
+      const folderName = firstFile.webkitRelativePath.split("/")[0];
+      onChange(folderName);
+
+      // Collect immediate children of the picked folder as a content fingerprint
+      const immediateChildren = new Set<string>();
+      for (let i = 0; i < files.length; i++) {
+        const parts = files[i].webkitRelativePath.split("/");
+        if (parts.length >= 2) immediateChildren.add(parts[1]);
+      }
+
+      const res = await resolveDirectoryByContents({
+        name: folderName,
+        entries: [...immediateChildren],
+      });
+      if (res.success && res.data.length >= 1) {
+        // Best match (highest fingerprint score) goes first
+        onChange(res.data[0]);
+        if (res.data.length > 1) {
+          // Show remaining candidates as suggestions in case user wants to pick
+          setSuggestions(res.data);
+          setOpen(true);
+          setActiveIdx(-1);
+        } else {
+          onSelect?.(res.data[0]);
+        }
+      } else {
+        // No match found: keep the name and let user complete via autocomplete
+        fetchSuggestions(folderName);
+      }
+    }
+    e.target.value = "";
+  }
+
+  return (
+    <div ref={containerRef} className={`relative ${className ?? ""}`}>
+      <div className="flex gap-1.5">
+        <Input
+          value={value}
+          onChange={handleChange}
+          onKeyDown={handleKeyDown}
+          onFocus={() => value.trim() && suggestions.length > 0 && setOpen(true)}
+          disabled={disabled}
+          placeholder={placeholder}
+          autoComplete="off"
+          spellCheck={false}
+          className="flex-1"
+        />
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          className="shrink-0"
+          disabled={disabled}
+          onClick={handleBrowseClick}
+          title="Browse for folder"
+        >
+          <FolderOpen className="h-4 w-4" />
+        </Button>
+      </div>
+      <input
+        ref={fileInputRef}
+        type="file"
+        className="hidden"
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        {...({ webkitdirectory: "", directory: "" } as any)}
+        onChange={handleFileInput}
+      />
+      {open && suggestions.length > 0 && (
+        <ul className="absolute z-50 mt-1 w-full rounded-md border bg-popover shadow-md max-h-52 overflow-auto text-sm">
+          {suggestions.map((dir, i) => (
+            <li
+              key={dir}
+              onMouseDown={(e) => { e.preventDefault(); pick(dir); }}
+              className={`flex items-center gap-2 px-3 py-2 cursor-pointer ${
+                i === activeIdx ? "bg-accent" : "hover:bg-accent/60"
+              }`}
+            >
+              <FolderOpen className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              <span className="truncate">{dir}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 function LocalFolderForm({
   localPath,
   setLocalPath,
@@ -395,43 +587,116 @@ function LocalFolderForm({
   localError: string;
   onSubmit: (e: React.FormEvent) => void;
 }) {
+  const [mode, setMode] = useState<"direct" | "scan">("scan");
+  const [scanPath, setScanPath] = useState("");
+  const [scanning, setScanning] = useState(false);
+  const [scanError, setScanError] = useState("");
+  const [scanResults, setScanResults] = useState<{ path: string; name: string }[] | null>(null);
+
+  async function handleScan(e: React.FormEvent) {
+    e.preventDefault();
+    if (!scanPath.trim()) return;
+    setScanning(true);
+    setScanError("");
+    setScanResults(null);
+    const result = await scanLocalDirectory({ parentPath: scanPath.trim() });
+    if (result.success) {
+      setScanResults(result.data);
+      if (result.data.length === 0) setScanError("No BMAD projects found in this directory.");
+    } else {
+      setScanError(result.error);
+    }
+    setScanning(false);
+  }
+
+  function handleSelectScanned(p: string) {
+    setLocalPath(p);
+    setMode("direct");
+    setScanResults(null);
+  }
+
   return (
-    <form onSubmit={onSubmit} className="space-y-4 pt-2">
-      <div className="space-y-2">
-        <p className="text-sm text-muted-foreground">
-          Enter the absolute path to a local folder containing{" "}
-          <code className="rounded bg-muted px-1 py-0.5 text-xs">_bmad/</code>{" "}
-          or{" "}
-          <code className="rounded bg-muted px-1 py-0.5 text-xs">
-            _bmad-output/
-          </code>
-          .
-        </p>
-        <Input
-          placeholder="/home/user/my-project"
-          value={localPath}
-          onChange={(e) => setLocalPath(e.target.value)}
-          disabled={localImporting}
-          autoComplete="off"
-        />
+    <div className="space-y-3 pt-2">
+      <div className="flex gap-2 text-xs">
+        <button
+          type="button"
+          onClick={() => setMode("scan")}
+          className={`px-2 py-1 rounded transition-colors ${
+            mode === "scan"
+              ? "bg-primary text-primary-foreground"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          Scan directory
+        </button>
+        <button
+          type="button"
+          onClick={() => setMode("direct")}
+          className={`px-2 py-1 rounded transition-colors ${
+            mode === "direct"
+              ? "bg-primary text-primary-foreground"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          Enter path directly
+        </button>
       </div>
 
-      {localError && (
-        <p className="text-destructive text-sm">{localError}</p>
+      {mode === "scan" ? (
+        <div className="space-y-3">
+          <form onSubmit={handleScan} className="flex gap-2 items-start">
+            <PathInput
+              value={scanPath}
+              onChange={setScanPath}
+              disabled={scanning}
+              placeholder="/Users/you/Documents/GitHub"
+              className="flex-1"
+            />
+            <Button type="submit" disabled={scanning || !scanPath.trim()} size="sm" className="shrink-0">
+              {scanning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+            </Button>
+          </form>
+          {scanError && <p className="text-destructive text-sm">{scanError}</p>}
+          {scanResults && scanResults.length > 0 && (
+            <ScrollArea className="h-52">
+              <div className="space-y-1 pr-2">
+                {scanResults.map((r) => (
+                  <button
+                    key={r.path}
+                    type="button"
+                    onClick={() => handleSelectScanned(r.path)}
+                    className="hover:bg-accent flex w-full items-center gap-3 rounded-lg border p-3 text-left transition-colors"
+                  >
+                    <FolderOpen className="text-muted-foreground h-4 w-4 shrink-0" />
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">{r.name}</p>
+                      <p className="truncate text-xs text-muted-foreground">{r.path}</p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </ScrollArea>
+          )}
+        </div>
+      ) : (
+        <form onSubmit={onSubmit} className="space-y-3">
+          <PathInput
+            value={localPath}
+            onChange={setLocalPath}
+            disabled={localImporting}
+            placeholder="/home/user/my-project"
+          />
+          {localError && <p className="text-destructive text-sm">{localError}</p>}
+          <Button type="submit" className="w-full" disabled={localImporting || !localPath.trim()}>
+            {localImporting ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <FolderOpen className="mr-2 h-4 w-4" />
+            )}
+            Import local folder
+          </Button>
+        </form>
       )}
-
-      <Button
-        type="submit"
-        className="w-full"
-        disabled={localImporting || !localPath.trim()}
-      >
-        {localImporting ? (
-          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-        ) : (
-          <FolderOpen className="mr-2 h-4 w-4" />
-        )}
-        Import local folder
-      </Button>
-    </form>
+    </div>
   );
 }

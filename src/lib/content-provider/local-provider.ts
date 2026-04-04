@@ -1,6 +1,12 @@
 import fs from "node:fs/promises";
 import { constants } from "node:fs";
 import path from "node:path";
+import {
+  BMAD_CORE_DIR,
+  BMAD_IMPLEMENTATION_DIR,
+  BMAD_OUTPUT_DIR,
+  BMAD_PLANNING_DIR,
+} from "@/lib/bmad/utils";
 import type { ContentProvider, ContentProviderTree } from "./types";
 import { LOCAL_PROVIDER_DEFAULTS } from "./types";
 
@@ -10,25 +16,35 @@ interface LocalProviderOptions {
   maxDepth?: number;
 }
 
+interface ScanRoot {
+  virtualRoot: string;
+  absoluteRoot: string;
+}
+
+interface LocalScanContext {
+  projectRoot: string;
+  rootDirectories: string[];
+  scanRoots: ScanRoot[];
+}
+
+interface LocalDirInfo {
+  dirNames: string[];
+  hasArtifacts: boolean;
+  hasDocs: boolean;
+  outputDirName: string | null;
+}
+
 export class LocalProvider implements ContentProvider {
   private resolvedRoot: string;
   private maxFileSizeBytes: number;
   private maxFileCount: number;
   private maxDepth: number;
+  private scanContextPromise: Promise<LocalScanContext> | null = null;
 
   constructor(rootPath: string, options?: LocalProviderOptions) {
     // Guard 1 — Feature flag
     if (process.env.ENABLE_LOCAL_FS !== "true") {
       throw new Error("LOCAL_DISABLED");
-    }
-
-    // Runtime check: Node.js >= 20.12.0 required for Dirent.parentPath
-    // parentPath is an instance property (not on prototype), so check via version
-    const [major, minor] = process.versions.node.split(".").map(Number);
-    if (major < 20 || (major === 20 && minor < 12)) {
-      throw new Error(
-        "LocalProvider requires Node.js >= 20.12.0 (Dirent.parentPath support)"
-      );
     }
 
     this.resolvedRoot = path.resolve(rootPath);
@@ -52,6 +68,10 @@ export class LocalProvider implements ContentProvider {
     }
   }
 
+  async getProjectRoot(): Promise<string> {
+    return (await this.getScanContext()).projectRoot;
+  }
+
   /** Directories skipped during tree scan (not relevant to BMAD projects). */
   private static IGNORED_DIRS = new Set([
     "node_modules",
@@ -72,27 +92,179 @@ export class LocalProvider implements ContentProvider {
     ".now",
   ]);
 
-  /** Directories to scan for BMAD content. Only these (and their children) are walked. */
-  private static BMAD_DIRS = new Set(["_bmad", "_bmad-output"]);
+  private async getScanContext(): Promise<LocalScanContext> {
+    if (!this.scanContextPromise) {
+      this.scanContextPromise = this.buildScanContext();
+    }
+    return this.scanContextPromise;
+  }
 
-  async getTree(): Promise<ContentProviderTree> {
-    const paths: string[] = [];
-    const rootDirectories: string[] = [];
-    let fileCount = 0;
+  private async buildScanContext(): Promise<LocalScanContext> {
+    await this.validateRoot();
 
-    // Step 1: Read root-level entries to populate rootDirectories
-    const rootEntries = await fs.readdir(this.resolvedRoot, {
-      withFileTypes: true,
-    });
-    for (const dirent of rootEntries) {
-      if (dirent.isSymbolicLink()) continue;
-      if (dirent.isDirectory()) {
-        rootDirectories.push(dirent.name);
+    const inputInfo = await this.readDirInfo(this.resolvedRoot);
+    const inputBase = path.basename(this.resolvedRoot);
+    let projectRoot = this.resolvedRoot;
+    let projectInfo = inputInfo;
+
+    const parentRoot = path.dirname(this.resolvedRoot);
+    if (
+      parentRoot !== this.resolvedRoot &&
+      (inputBase === BMAD_CORE_DIR ||
+        inputBase === BMAD_OUTPUT_DIR ||
+        inputInfo.hasArtifacts)
+    ) {
+      try {
+        const parentInfo = await this.readDirInfo(parentRoot);
+        if (
+          this.shouldUseParentProjectRoot(inputBase, inputInfo, parentInfo)
+        ) {
+          projectRoot = parentRoot;
+          projectInfo = parentInfo;
+        }
+      } catch {
+        // Ignore parent probing errors and keep the current root.
       }
     }
 
-    // Step 2: Only walk into BMAD directories for file paths
-    const walk = async (dir: string, depth: number) => {
+    const scanRoots = this.buildVirtualRootsFromProjectRoot(projectRoot, projectInfo);
+
+    if (scanRoots.length === 0 && inputInfo.hasArtifacts) {
+      const virtualRoot = inputBase || BMAD_OUTPUT_DIR;
+      return {
+        projectRoot,
+        rootDirectories: [virtualRoot],
+        scanRoots: [{ virtualRoot, absoluteRoot: this.resolvedRoot }],
+      };
+    }
+
+    return {
+      projectRoot,
+      rootDirectories: scanRoots.map((root) => root.virtualRoot),
+      scanRoots,
+    };
+  }
+
+  private buildVirtualRootsFromProjectRoot(
+    projectRoot: string,
+    projectInfo: LocalDirInfo,
+  ): ScanRoot[] {
+    const scanRoots: ScanRoot[] = [];
+
+    if (projectInfo.dirNames.includes(BMAD_CORE_DIR)) {
+      this.pushScanRoot(scanRoots, BMAD_CORE_DIR, path.join(projectRoot, BMAD_CORE_DIR));
+    }
+
+    if (projectInfo.outputDirName) {
+      this.pushScanRoot(
+        scanRoots,
+        projectInfo.outputDirName,
+        path.join(projectRoot, projectInfo.outputDirName),
+      );
+    }
+
+    const docsDirName = projectInfo.dirNames.find(
+      (dirName) => dirName.toLowerCase() === "docs",
+    );
+    if (docsDirName) {
+      this.pushScanRoot(scanRoots, docsDirName, path.join(projectRoot, docsDirName));
+    }
+
+    return scanRoots;
+  }
+
+  private shouldUseParentProjectRoot(
+    inputBase: string,
+    inputInfo: LocalDirInfo,
+    parentInfo: LocalDirInfo,
+  ): boolean {
+    if (inputBase === BMAD_CORE_DIR) {
+      return true;
+    }
+
+    if (inputBase === BMAD_OUTPUT_DIR) {
+      return true;
+    }
+
+    if (inputInfo.hasArtifacts) {
+      return parentInfo.dirNames.includes(BMAD_CORE_DIR) || parentInfo.hasDocs;
+    }
+
+    return false;
+  }
+
+  private async readDirInfo(dirPath: string): Promise<LocalDirInfo> {
+    const entries = await fs.readdir(dirPath, { withFileTypes: true });
+    const dirNames = entries
+      .filter((entry) => !entry.isSymbolicLink() && entry.isDirectory())
+      .map((entry) => entry.name);
+
+    return {
+      dirNames,
+      hasArtifacts:
+        dirNames.includes(BMAD_PLANNING_DIR) ||
+        dirNames.includes(BMAD_IMPLEMENTATION_DIR),
+      hasDocs: dirNames.some((dirName) => dirName.toLowerCase() === "docs"),
+      outputDirName: await this.resolveOutputDirName(dirPath, dirNames),
+    };
+  }
+
+  private async resolveOutputDirName(
+    rootPath: string,
+    dirNames: string[],
+  ): Promise<string | null> {
+    if (dirNames.includes(BMAD_OUTPUT_DIR)) {
+      return BMAD_OUTPUT_DIR;
+    }
+
+    for (const dirName of dirNames) {
+      if (dirName === BMAD_CORE_DIR) continue;
+      if (await this.directoryHasArtifacts(path.join(rootPath, dirName))) {
+        return dirName;
+      }
+    }
+
+    return null;
+  }
+
+  private async directoryHasArtifacts(dirPath: string): Promise<boolean> {
+    try {
+      const entries = await fs.readdir(dirPath, { withFileTypes: true });
+      const dirNames = entries
+        .filter((entry) => !entry.isSymbolicLink() && entry.isDirectory())
+        .map((entry) => entry.name);
+      return (
+        dirNames.includes(BMAD_PLANNING_DIR) ||
+        dirNames.includes(BMAD_IMPLEMENTATION_DIR)
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  private pushScanRoot(
+    scanRoots: ScanRoot[],
+    virtualRoot: string,
+    absoluteRoot: string,
+  ): void {
+    if (scanRoots.some((scanRoot) => scanRoot.virtualRoot === virtualRoot)) {
+      return;
+    }
+    scanRoots.push({ virtualRoot, absoluteRoot });
+  }
+
+  async getTree(): Promise<ContentProviderTree> {
+    const { rootDirectories, scanRoots } = await this.getScanContext();
+    const paths: string[] = [];
+    let fileCount = 0;
+
+    // Step 2: Walk all non-ignored root directories for file paths
+    const walk = async (
+      scanRoot: ScanRoot,
+      dir: string,
+      depth: number,
+      relativeDir = "",
+    ) => {
       const entries = await fs.readdir(dir, { withFileTypes: true });
 
       for (const dirent of entries) {
@@ -109,7 +281,10 @@ export class LocalProvider implements ContentProvider {
 
           // Guard 6 — Depth limit
           if (depth < this.maxDepth) {
-            await walk(path.join(dir, dirent.name), depth + 1);
+            const childRelativeDir = relativeDir
+              ? path.join(relativeDir, dirent.name)
+              : dirent.name;
+            await walk(scanRoot, path.join(dir, dirent.name), depth + 1, childRelativeDir);
           }
           continue;
         }
@@ -126,24 +301,22 @@ export class LocalProvider implements ContentProvider {
           );
         }
 
-        const fullPath = path.join(dir, dirent.name);
-        paths.push(path.relative(this.resolvedRoot, fullPath));
+        const relativePath = relativeDir
+          ? path.join(relativeDir, dirent.name)
+          : dirent.name;
+        paths.push(path.join(scanRoot.virtualRoot, relativePath));
       }
     };
 
-    for (const dirName of rootDirectories) {
-      if (LocalProvider.BMAD_DIRS.has(dirName)) {
-        await walk(path.join(this.resolvedRoot, dirName), 1);
-      }
+    for (const scanRoot of scanRoots) {
+      await walk(scanRoot, scanRoot.absoluteRoot, 1);
     }
 
     return { paths, rootDirectories };
   }
 
   async getFileContent(filePath: string): Promise<string> {
-    this.assertSafePath(filePath);
-
-    const fullPath = path.resolve(this.resolvedRoot, filePath);
+    const fullPath = await this.resolveVirtualPath(filePath);
 
     // Guard 3 — Symlink detection via lstat
     const lstat = await fs.lstat(fullPath);
@@ -177,15 +350,35 @@ export class LocalProvider implements ContentProvider {
       throw new Error("Invalid path: unsupported characters");
     }
 
-    const resolved = path.resolve(this.resolvedRoot, filePath);
-    if (!resolved.startsWith(this.resolvedRoot + path.sep) && resolved !== this.resolvedRoot) {
+    if (path.isAbsolute(filePath)) {
       throw new Error("Path traversal detected");
     }
 
-    // Guard 7 — Restrict access to BMAD directories only
-    const firstSegment = filePath.split(path.sep)[0];
-    if (!LocalProvider.BMAD_DIRS.has(firstSegment)) {
+    if (/(?:^|[\\/])\.\.(?:[\\/]|$)/.test(filePath)) {
+      throw new Error("Path traversal detected");
+    }
+  }
+
+  private async resolveVirtualPath(filePath: string): Promise<string> {
+    this.assertSafePath(filePath);
+
+    const segments = filePath.split(/[\\/]+/).filter(Boolean);
+    const [firstSegment, ...restSegments] = segments;
+    const { scanRoots } = await this.getScanContext();
+    const scanRoot = scanRoots.find((candidate) => candidate.virtualRoot === firstSegment);
+
+    if (!scanRoot) {
       throw new Error("Access denied: only BMAD directories are accessible");
     }
+
+    const resolved = path.resolve(scanRoot.absoluteRoot, ...restSegments);
+    if (
+      !resolved.startsWith(scanRoot.absoluteRoot + path.sep) &&
+      resolved !== scanRoot.absoluteRoot
+    ) {
+      throw new Error("Path traversal detected");
+    }
+
+    return resolved;
   }
 }

@@ -5,16 +5,17 @@ import { parseEpics } from "./parse-epics";
 import { parseEpicFile } from "./parse-epic-file";
 import { parseStory } from "./parse-story";
 import { correlate, computeProjectStats } from "./correlate";
-import { buildFileTree } from "./utils";
+import {
+  BMAD_IMPLEMENTATION_DIR,
+  BMAD_PLANNING_DIR,
+  normalizeStoryStatus,
+  detectBmadOutputDir,
+  buildFileTree,
+} from "./utils";
 import type { RepoConfig } from "@/lib/types";
 import type { ParsedBmadFile, BmadFileMetadata } from "./types";
-import { normalizeStoryStatus } from "./utils";
 import matter from "gray-matter";
 import yaml from "js-yaml";
-
-const BMAD_OUTPUT = "_bmad-output";
-const PLANNING = "planning-artifacts";
-const IMPLEMENTATION = "implementation-artifacts";
 
 /**
  * Parse a full BMAD project using a ContentProvider abstraction.
@@ -29,22 +30,23 @@ export async function getBmadProject(
   const providerTree = await provider.getTree();
   const allPaths = providerTree.paths;
 
+  const BMAD_OUTPUT = detectBmadOutputDir(allPaths);
   const bmadPaths = allPaths.filter((p) => p.startsWith(BMAD_OUTPUT + "/"));
 
   const sprintStatusPath = bmadPaths.find(
     (p) =>
-      p.includes(IMPLEMENTATION) &&
+      p.includes(BMAD_IMPLEMENTATION_DIR) &&
       p.endsWith("sprint-status.yaml")
   );
 
   // Auto-detect epics source: single file first, then directory fallback
   const epicsPath = bmadPaths.find(
     (p) =>
-      p.includes(PLANNING) &&
+      p.includes(BMAD_PLANNING_DIR) &&
       (p.endsWith("epics.md") || p.endsWith("epic.md"))
   );
 
-  const EPICS_DIR = PLANNING + "/epics";
+  const EPICS_DIR = BMAD_PLANNING_DIR + "/epics";
   const epicFilePaths = epicsPath
     ? [] // single file wins — skip directory
     : bmadPaths.filter((p) => {
@@ -55,7 +57,7 @@ export async function getBmadProject(
       });
 
   const storyPaths = bmadPaths.filter((p) => {
-    if (!p.includes(IMPLEMENTATION) || !p.endsWith(".md")) return false;
+    if (!p.includes(BMAD_IMPLEMENTATION_DIR) || !p.endsWith(".md")) return false;
     const filename = p.split("/").pop() || "";
     if (/^\d+-\d+-.+\.md$/.test(filename)) return true;
     if (/^story[_-]?\d/i.test(filename)) return true;

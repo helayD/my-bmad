@@ -1,5 +1,26 @@
 import { FileTreeNode, StoryStatus } from "./types";
 
+export const BMAD_OUTPUT_DIR = "_bmad-output";
+export const BMAD_CORE_DIR = "_bmad";
+export const BMAD_PLANNING_DIR = "planning-artifacts";
+export const BMAD_IMPLEMENTATION_DIR = "implementation-artifacts";
+
+export function detectBmadOutputDir(paths: string[]): string {
+  for (const p of paths) {
+    const slash = p.indexOf("/");
+    if (slash === -1) continue;
+    const rootDir = p.slice(0, slash);
+    const rest = p.slice(slash + 1);
+    if (
+      rest.startsWith(BMAD_PLANNING_DIR + "/") ||
+      rest.startsWith(BMAD_IMPLEMENTATION_DIR + "/")
+    ) {
+      return rootDir;
+    }
+  }
+  return BMAD_OUTPUT_DIR;
+}
+
 /**
  * Canonical normalizeStoryStatus used across all BMAD parsers.
  * Default fallback is "backlog".
