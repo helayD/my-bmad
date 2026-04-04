@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>my-bmad Color Themes</title>
+    <style>
+      :root {
+        --bg: #07111e;
+        --panel: rgba(12, 20, 35, 0.86);
+        --line: rgba(255, 255, 255, 0.08);
+        --text: #eef4fb;
+        --muted: #9bb0c8;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+        color: var(--text);
+        background:
+          radial-gradient(circle at top left, rgba(45, 105, 255, 0.16), transparent 26%),
+          radial-gradient(circle at top right, rgba(18, 205, 255, 0.13), transparent 28%),
+          radial-gradient(circle at bottom center, rgba(83, 216, 106, 0.12), transparent 24%),
+          var(--bg);
+      }
+      .wrap {
+        width: min(1280px, calc(100vw - 32px));
+        margin: 0 auto;
+        padding: 28px 0 48px;
+      }
+      .hero {
+        padding: 28px;
+        border-radius: 28px;
+        border: 1px solid var(--line);
+        background: rgba(255,255,255,0.03);
+        backdrop-filter: blur(16px);
+        margin-bottom: 24px;
+      }
+      .hero h1 { margin: 0 0 10px; font-size: 38px; }
+      .hero p { margin: 0; color: var(--muted); line-height: 1.7; max-width: 900px; }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 20px;
+      }
+      .theme {
+        border: 1px solid var(--line);
+        border-radius: 24px;
+        background: var(--panel);
+        overflow: hidden;
+        box-shadow: 0 24px 60px rgba(0,0,0,0.28);
+      }
+      .theme-head {
+        padding: 22px 22px 12px;
+      }
+      .theme-head h2 { margin: 0 0 8px; font-size: 22px; }
+      .theme-head p { margin: 0; color: var(--muted); line-height: 1.65; }
+      .swatches {
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        height: 84px;
+        margin: 18px 22px 22px;
+        border-radius: 18px;
+        overflow: hidden;
+        border: 1px solid rgba(255,255,255,0.05);
+      }
+      .swatch {
+        position: relative;
+        display: flex;
+        align-items: end;
+        justify-content: start;
+        padding: 10px;
+        font-size: 11px;
+        color: rgba(255,255,255,0.92);
+        font-weight: 600;
+      }
+      .preview {
+        margin: 0 22px 22px;
+        padding: 16px;
+        border-radius: 20px;
+        border: 1px solid rgba(255,255,255,0.06);
+        background: rgba(255,255,255,0.03);
+      }
+      .topbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 14px;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .mark {
+        width: 18px;
+        height: 18px;
+        border-radius: 6px;
+      }
+      .pill {
+        padding: 6px 10px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 700;
+      }
+      .preview-grid {
+        display: grid;
+        grid-template-columns: 1.3fr 0.9fr;
+        gap: 12px;
+      }
+      .card, .side {
+        border-radius: 16px;
+        border: 1px solid rgba(255,255,255,0.05);
+        padding: 14px;
+      }
+      .stack { display: grid; gap: 10px; }
+      .row {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        align-items: center;
+        padding: 10px 12px;
+        border-radius: 14px;
+      }
+      .label strong { display: block; font-size: 13px; }
+      .label span { display: block; color: rgba(255,255,255,0.65); font-size: 12px; margin-top: 4px; }
+      .note {
+        margin-top: 10px;
+        padding: 16px 18px;
+        border-radius: 18px;
+        border: 1px solid rgba(255,255,255,0.06);
+        background: rgba(255,255,255,0.03);
+        color: var(--muted);
+        line-height: 1.65;
+      }
+      @media (max-width: 960px) {
+        .grid { grid-template-columns: 1fr; }
+        .preview-grid { grid-template-columns: 1fr; }
+        .swatches { grid-template-columns: repeat(3, 1fr); height: auto; }
+        .swatch { min-height: 60px; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <section class="hero">
+        <h1>my-bmad 视觉主题参考</h1>
+        <p>基于现有 logo 的蓝-青-绿渐变语义，整理出 4 个适合控制面产品的主题方向。它们都遵循同一原则：中性背景承担密度，品牌色承担识别，语义色承担判断，不让“好看”压过“可读”和“可控”。</p>
+      </section>
+
+      <section class="grid">
+        <article class="theme">
+          <div class="theme-head">
+            <h2>主题 A · Control Tower Core</h2>
+            <p>推荐默认方向。深色中性底 + 蓝青主强调 + 绿色成功态，最适合可信、专业、桌面优先的控制面。</p>
+          </div>
+          <div class="swatches">
+            <div class="swatch" style="background:#08111f">#08111F</div>
+            <div class="swatch" style="background:#12243f">#12243F</div>
+            <div class="swatch" style="background:#2c69ff">#2C69FF</div>
+            <div class="swatch" style="background:#15c7ff">#15C7FF</div>
+            <div class="swatch" style="background:#53d86a">#53D86A</div>
+          </div>
+          <div class="preview">
+            <div class="topbar">
+              <div class="brand"><div class="mark" style="background:linear-gradient(135deg,#2c69ff,#15c7ff,#53d86a)"></div><strong>Control Tower</strong></div>
+              <span class="pill" style="background:rgba(21,199,255,.14); color:#b8ecff">健康运行</span>
+            </div>
+            <div class="preview-grid">
+              <div class="card stack" style="background:rgba(255,255,255,.03)">
+                <div class="row" style="background:linear-gradient(135deg,rgba(44,105,255,.18),rgba(21,199,255,.15)); border:1px solid rgba(21,199,255,.26)"><div class="label"><strong>Story-128</strong><span>等待接口选择确认</span></div><span class="pill" style="background:rgba(244,200,79,.14); color:#ffe59b">待响应</span></div>
+                <div class="row" style="background:rgba(255,255,255,.04)"><div class="label"><strong>Run-2041</strong><span>heartbeat 8s 前</span></div><span class="pill" style="background:rgba(83,216,106,.15); color:#bcf5c6">健康</span></div>
+              </div>
+              <div class="side" style="background:#0d1a2f">
+                <div class="label"><strong>关键语气</strong><span>可信 / 冷静 / 可接管</span></div>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <article class="theme">
+          <div class="theme-head">
+            <h2>主题 B · Cyan Ops</h2>
+            <p>更强调实时性、系统流动感和智能编排，适合运行状态、时间线与执行监控更突出的页面。</p>
+          </div>
+          <div class="swatches">
+            <div class="swatch" style="background:#07131d">#07131D</div>
+            <div class="swatch" style="background:#123146">#123146</div>
+            <div class="swatch" style="background:#0e8fc4">#0E8FC4</div>
+            <div class="swatch" style="background:#19d0e8">#19D0E8</div>
+            <div class="swatch" style="background:#72e3b1">#72E3B1</div>
+          </div>
+          <div class="preview">
+            <div class="topbar">
+              <div class="brand"><div class="mark" style="background:linear-gradient(135deg,#0e8fc4,#19d0e8,#72e3b1)"></div><strong>Run Timeline</strong></div>
+              <span class="pill" style="background:rgba(25,208,232,.14); color:#b5f7ff">LIVE</span>
+            </div>
+            <div class="preview-grid">
+              <div class="card stack" style="background:rgba(255,255,255,.025)">
+                <div class="row" style="background:rgba(25,208,232,.1)"><div class="label"><strong>自动恢复成功</strong><span>session 已重新附着</span></div><span class="pill" style="background:rgba(83,216,106,.15); color:#bcf5c6">恢复</span></div>
+                <div class="row" style="background:rgba(255,255,255,.04)"><div class="label"><strong>下一步</strong><span>等待产品确认 API 选择</span></div><span class="pill" style="background:rgba(244,200,79,.14); color:#ffe59b">待决策</span></div>
+              </div>
+              <div class="side" style="background:#0a1e2b"><div class="label"><strong>关键语气</strong><span>流动 / 在线 / 系统反馈强</span></div></div>
+            </div>
+          </div>
+        </article>
+
+        <article class="theme">
+          <div class="theme-head">
+            <h2>主题 C · Green Completion</h2>
+            <p>强调推进、完成与回写闭环，适合 Review Hub、结果页和阶段完成反馈场景，不建议作为全局主主题。</p>
+          </div>
+          <div class="swatches">
+            <div class="swatch" style="background:#0b1712">#0B1712</div>
+            <div class="swatch" style="background:#163927">#163927</div>
+            <div class="swatch" style="background:#1e8f5b">#1E8F5B</div>
+            <div class="swatch" style="background:#53d86a">#53D86A</div>
+            <div class="swatch" style="background:#c8f57a">#C8F57A</div>
+          </div>
+          <div class="preview">
+            <div class="topbar">
+              <div class="brand"><div class="mark" style="background:linear-gradient(135deg,#1e8f5b,#53d86a,#c8f57a)"></div><strong>Review Hub</strong></div>
+              <span class="pill" style="background:rgba(83,216,106,.15); color:#bcf5c6">Review-ready</span>
+            </div>
+            <div class="preview-grid">
+              <div class="card stack" style="background:rgba(255,255,255,.03)">
+                <div class="row" style="background:rgba(83,216,106,.1)"><div class="label"><strong>Writeback 完成</strong><span>结果已回到 Story 链路</span></div><span class="pill" style="background:rgba(83,216,106,.15); color:#bcf5c6">成功</span></div>
+                <div class="row" style="background:rgba(255,255,255,.04)"><div class="label"><strong>建议动作</strong><span>进入 Review 或派发下一个 Task</span></div></div>
+              </div>
+              <div class="side" style="background:#11281b"><div class="label"><strong>关键语气</strong><span>完成 / 正向推进 / 可交付</span></div></div>
+            </div>
+          </div>
+        </article>
+
+        <article class="theme">
+          <div class="theme-head">
+            <h2>主题 D · Neutral Governance</h2>
+            <p>降低品牌渐变存在感，强化治理、审计和团队总控的理性气质。适合作为团队管理或设置域的子主题。</p>
+          </div>
+          <div class="swatches">
+            <div class="swatch" style="background:#10151d">#10151D</div>
+            <div class="swatch" style="background:#232d3b">#232D3B</div>
+            <div class="swatch" style="background:#5e7594">#5E7594</div>
+            <div class="swatch" style="background:#15c7ff">#15C7FF</div>
+            <div class="swatch" style="background:#53d86a">#53D86A</div>
+          </div>
+          <div class="preview">
+            <div class="topbar">
+              <div class="brand"><div class="mark" style="background:linear-gradient(135deg,#5e7594,#15c7ff,#53d86a)"></div><strong>Governance</strong></div>
+              <span class="pill" style="background:rgba(255,255,255,.08); color:#e6eef7">Org View</span>
+            </div>
+            <div class="preview-grid">
+              <div class="card stack" style="background:rgba(255,255,255,.03)">
+                <div class="row" style="background:rgba(255,255,255,.04)"><div class="label"><strong>审批边界</strong><span>高风险任务需 Lead 审批</span></div></div>
+                <div class="row" style="background:rgba(255,255,255,.04)"><div class="label"><strong>审计保留</strong><span>关键 run 保留 90 天</span></div></div>
+              </div>
+              <div class="side" style="background:#171d28"><div class="label"><strong>关键语气</strong><span>治理 / 决策 / 低情绪噪音</span></div></div>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <div class="note">
+        <strong>推荐结论：</strong> 默认采用 <strong>主题 A · Control Tower Core</strong> 作为全局主主题；在执行态较强的页面吸收 <strong>主题 B</strong> 的青色在线感；在 review-ready 与回写成功时借用 <strong>主题 C</strong> 的绿色强调；团队治理与设置域可收敛到 <strong>主题 D</strong> 的中性表达。
+      </div>
+    </div>
+  </body>
+</html>

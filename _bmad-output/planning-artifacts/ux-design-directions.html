@@ -1,0 +1,867 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>my-bmad UX Design Directions</title>
+    <style>
+      :root {
+        --bg: #08111f;
+        --panel: rgba(11, 23, 40, 0.78);
+        --panel-strong: rgba(12, 29, 52, 0.94);
+        --panel-soft: rgba(255, 255, 255, 0.06);
+        --text: #e8f0fa;
+        --muted: #92a6bf;
+        --line: rgba(255, 255, 255, 0.09);
+        --brand-blue: #2c69ff;
+        --brand-cyan: #15c7ff;
+        --brand-green: #53d86a;
+        --success: #5ad67d;
+        --warning: #f4c84f;
+        --danger: #ff6c72;
+        --radius-lg: 24px;
+        --radius-md: 18px;
+        --radius-sm: 12px;
+        --shadow: 0 24px 80px rgba(0, 0, 0, 0.34);
+        --gradient: linear-gradient(135deg, var(--brand-blue) 0%, var(--brand-cyan) 45%, var(--brand-green) 100%);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background:
+          radial-gradient(circle at top left, rgba(44, 105, 255, 0.18), transparent 28%),
+          radial-gradient(circle at top right, rgba(21, 199, 255, 0.16), transparent 30%),
+          radial-gradient(circle at bottom center, rgba(83, 216, 106, 0.14), transparent 25%),
+          var(--bg);
+        color: var(--text);
+      }
+
+      a {
+        color: inherit;
+        text-decoration: none;
+      }
+
+      .page {
+        display: grid;
+        grid-template-columns: 320px 1fr;
+        min-height: 100vh;
+      }
+
+      .sidebar {
+        position: sticky;
+        top: 0;
+        height: 100vh;
+        padding: 28px;
+        border-right: 1px solid var(--line);
+        background: rgba(5, 12, 24, 0.72);
+        backdrop-filter: blur(18px);
+      }
+
+      .brand {
+        display: flex;
+        gap: 14px;
+        align-items: center;
+        margin-bottom: 28px;
+      }
+
+      .brand-mark {
+        width: 46px;
+        height: 46px;
+        border-radius: 16px;
+        background: var(--gradient);
+        box-shadow: 0 10px 30px rgba(21, 199, 255, 0.25);
+      }
+
+      .brand h1 {
+        margin: 0;
+        font-size: 18px;
+      }
+
+      .brand p,
+      .sidebar p,
+      .direction-meta,
+      .chip,
+      .stat-label,
+      .mini-label,
+      .note,
+      .direction-copy p {
+        color: var(--muted);
+      }
+
+      .sidebar p {
+        margin: 0 0 18px;
+        line-height: 1.6;
+      }
+
+      .nav-list {
+        display: grid;
+        gap: 10px;
+        margin-bottom: 22px;
+      }
+
+      .nav-item {
+        padding: 14px 16px;
+        border-radius: 16px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.03);
+        transition: transform 180ms ease, border-color 180ms ease, background 180ms ease;
+      }
+
+      .nav-item:hover {
+        transform: translateX(4px);
+        border-color: rgba(21, 199, 255, 0.45);
+        background: rgba(21, 199, 255, 0.08);
+      }
+
+      .nav-item strong {
+        display: block;
+        margin-bottom: 4px;
+        font-size: 14px;
+      }
+
+      .nav-item span {
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .sidebar-card {
+        padding: 18px;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: rgba(255, 255, 255, 0.03);
+      }
+
+      .sidebar-card h3 {
+        margin: 0 0 10px;
+        font-size: 14px;
+      }
+
+      .sidebar-card ul {
+        margin: 0;
+        padding-left: 18px;
+        display: grid;
+        gap: 8px;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.5;
+      }
+
+      .content {
+        padding: 28px;
+      }
+
+      .hero {
+        padding: 30px;
+        border-radius: 28px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: linear-gradient(135deg, rgba(12, 32, 57, 0.94), rgba(8, 19, 33, 0.88));
+        box-shadow: var(--shadow);
+        margin-bottom: 28px;
+      }
+
+      .eyebrow {
+        display: inline-flex;
+        gap: 8px;
+        align-items: center;
+        padding: 8px 12px;
+        border-radius: 999px;
+        background: rgba(21, 199, 255, 0.12);
+        color: #b5eaff;
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+
+      .hero h2 {
+        font-size: clamp(30px, 4vw, 46px);
+        margin: 18px 0 14px;
+        line-height: 1.05;
+      }
+
+      .hero p {
+        max-width: 860px;
+        margin: 0;
+        color: #bdd0e7;
+        font-size: 16px;
+        line-height: 1.75;
+      }
+
+      .comparison-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 16px;
+        margin-top: 22px;
+      }
+
+      .comparison-card {
+        padding: 18px;
+        border-radius: 20px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.03);
+      }
+
+      .comparison-card strong {
+        display: block;
+        margin-bottom: 8px;
+      }
+
+      .comparison-card span {
+        color: var(--muted);
+        line-height: 1.6;
+        font-size: 14px;
+      }
+
+      .direction {
+        margin-top: 32px;
+        padding: 24px;
+        border-radius: 28px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(255, 255, 255, 0.025);
+        box-shadow: var(--shadow);
+      }
+
+      .direction-header {
+        display: flex;
+        justify-content: space-between;
+        gap: 20px;
+        align-items: flex-start;
+        margin-bottom: 18px;
+      }
+
+      .direction-header h3 {
+        margin: 8px 0 10px;
+        font-size: 28px;
+      }
+
+      .direction-meta {
+        font-size: 14px;
+        line-height: 1.7;
+        max-width: 560px;
+      }
+
+      .chip-row {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-top: 12px;
+      }
+
+      .chip {
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        padding: 7px 12px;
+        font-size: 12px;
+        background: rgba(255, 255, 255, 0.03);
+      }
+
+      .direction-layout {
+        display: grid;
+        grid-template-columns: 1.4fr 0.9fr;
+        gap: 18px;
+        align-items: start;
+      }
+
+      .mockup,
+      .direction-copy {
+        border-radius: 22px;
+        border: 1px solid var(--line);
+        background: var(--panel);
+        backdrop-filter: blur(18px);
+      }
+
+      .mockup {
+        padding: 18px;
+      }
+
+      .direction-copy {
+        padding: 18px;
+      }
+
+      .window-top {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 14px;
+      }
+
+      .window-dots {
+        display: flex;
+        gap: 8px;
+      }
+
+      .window-dots span {
+        width: 10px;
+        height: 10px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.18);
+      }
+
+      .window-title {
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .shell {
+        display: grid;
+        gap: 14px;
+      }
+
+      .shell.three-col {
+        grid-template-columns: 220px minmax(0, 1fr) 280px;
+      }
+
+      .shell.two-col {
+        grid-template-columns: 260px minmax(0, 1fr);
+      }
+
+      .shell.focus {
+        grid-template-columns: 1fr 320px;
+      }
+
+      .nav-pane,
+      .main-pane,
+      .side-pane,
+      .top-strip,
+      .card,
+      .timeline,
+      .list,
+      .hero-card,
+      .stack {
+        border-radius: 18px;
+        border: 1px solid rgba(255, 255, 255, 0.07);
+        background: rgba(255, 255, 255, 0.04);
+      }
+
+      .nav-pane,
+      .side-pane,
+      .main-pane,
+      .top-strip,
+      .hero-card,
+      .timeline,
+      .list,
+      .stack,
+      .card {
+        padding: 14px;
+      }
+
+      .nav-pane {
+        min-height: 420px;
+      }
+
+      .main-pane,
+      .side-pane {
+        min-height: 420px;
+      }
+
+      .top-strip {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .stat {
+        padding: 12px;
+        border-radius: 16px;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+      }
+
+      .stat-value {
+        font-size: 20px;
+        font-weight: 700;
+        margin-top: 4px;
+      }
+
+      .stack {
+        display: grid;
+        gap: 12px;
+      }
+
+      .task-row,
+      .signal-row,
+      .log-row,
+      .request-row,
+      .mini-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        align-items: center;
+        padding: 12px 14px;
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(255, 255, 255, 0.05);
+      }
+
+      .task-row.active,
+      .signal-row.active,
+      .card.brand,
+      .hero-card.brand {
+        background: linear-gradient(135deg, rgba(44, 105, 255, 0.24), rgba(21, 199, 255, 0.18));
+        border-color: rgba(21, 199, 255, 0.36);
+      }
+
+      .label-stack {
+        display: grid;
+        gap: 4px;
+      }
+
+      .label-stack strong {
+        font-size: 14px;
+      }
+
+      .badge {
+        padding: 6px 10px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+      }
+
+      .badge.run {
+        background: rgba(21, 199, 255, 0.16);
+        color: #98e9ff;
+      }
+
+      .badge.good {
+        background: rgba(83, 216, 106, 0.18);
+        color: #aff2b9;
+      }
+
+      .badge.warn {
+        background: rgba(244, 200, 79, 0.18);
+        color: #ffe69b;
+      }
+
+      .badge.risk {
+        background: rgba(255, 108, 114, 0.16);
+        color: #ffc0c4;
+      }
+
+      .direction-copy h4 {
+        margin: 0 0 8px;
+        font-size: 16px;
+      }
+
+      .direction-copy p {
+        margin: 0 0 14px;
+        line-height: 1.7;
+        font-size: 14px;
+      }
+
+      .direction-copy ul {
+        margin: 0;
+        padding-left: 18px;
+        display: grid;
+        gap: 8px;
+        color: var(--muted);
+        font-size: 14px;
+        line-height: 1.6;
+      }
+
+      .hero-card {
+        padding: 18px;
+      }
+
+      .hero-card h5,
+      .card h5,
+      .timeline h5,
+      .list h5,
+      .stack h5 {
+        margin: 0 0 12px;
+        font-size: 13px;
+        color: #d6e5f7;
+        letter-spacing: 0.02em;
+      }
+
+      .timeline-track {
+        display: grid;
+        gap: 10px;
+      }
+
+      .timeline-node {
+        display: grid;
+        grid-template-columns: 14px 1fr;
+        gap: 10px;
+        align-items: start;
+      }
+
+      .timeline-node span {
+        width: 14px;
+        height: 14px;
+        margin-top: 3px;
+        border-radius: 999px;
+        background: var(--gradient);
+        box-shadow: 0 0 0 4px rgba(21, 199, 255, 0.12);
+      }
+
+      .mini-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .footer-note {
+        margin-top: 36px;
+        padding: 18px 22px;
+        border-radius: 20px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.03);
+        color: var(--muted);
+        line-height: 1.7;
+      }
+
+      @media (max-width: 1200px) {
+        .page {
+          grid-template-columns: 1fr;
+        }
+
+        .sidebar {
+          position: relative;
+          height: auto;
+          border-right: none;
+          border-bottom: 1px solid var(--line);
+        }
+
+        .comparison-grid,
+        .direction-layout,
+        .shell.three-col,
+        .shell.two-col,
+        .shell.focus,
+        .top-strip,
+        .mini-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark"></div>
+          <div>
+            <h1>my-bmad 设计方向集</h1>
+            <p>Step 9 · 6 个控制面方向</p>
+          </div>
+        </div>
+        <p>
+          基于品牌蓝-青-绿渐变、Linear + GitHub 灵感、以及“委托系统持续推进工作”的核心体验，下面是 6 个完整方向。
+        </p>
+        <nav class="nav-list">
+          <a class="nav-item" href="#d1"><strong>01 控制塔 Direction</strong><span>信号优先 / 任务全局态</span></a>
+          <a class="nav-item" href="#d2"><strong>02 工程工作台 Direction</strong><span>列表-详情-证据链</span></a>
+          <a class="nav-item" href="#d3"><strong>03 运行时间线 Direction</strong><span>执行流 / 恢复流中心</span></a>
+          <a class="nav-item" href="#d4"><strong>04 Review Hub Direction</strong><span>产出审查 / 决策沉淀</span></a>
+          <a class="nav-item" href="#d5"><strong>05 Command Grid Direction</strong><span>高密度仪表 / 团队治理</span></a>
+          <a class="nav-item" href="#d6"><strong>06 Focus Queue Direction</strong><span>个人推进 / 待响应优先</span></a>
+        </nav>
+        <div class="sidebar-card">
+          <h3>默认推荐</h3>
+          <ul>
+            <li>推荐主方向：01 控制塔 Direction</li>
+            <li>最佳组合：01 的总体布局 + 02 的详情页结构 + 03 的时间线反馈</li>
+            <li>适合 my-bmad 的原因：可信、清晰、可治理、可持续扩展</li>
+          </ul>
+        </div>
+      </aside>
+
+      <main class="content">
+        <section class="hero">
+          <div class="eyebrow">Design Direction Explorer</div>
+          <h2>为 `my-bmad` 生成的 6 组控制面视觉方向</h2>
+          <p>
+            每个方向都围绕同一个目标：让用户把研发目标交给系统后，既能感到系统真的在推进，又能在任何时刻快速理解当前状态、风险、交互请求与接管路径。差异主要体现在信息层级、导航组织、视觉密度和“控制感”的表达方式上。
+          </p>
+          <div class="comparison-grid">
+            <div class="comparison-card">
+              <strong>最清晰</strong>
+              <span>01 控制塔 Direction，适合打造产品默认主方向。</span>
+            </div>
+            <div class="comparison-card">
+              <strong>最工程化</strong>
+              <span>02 工程工作台 Direction，更像 Linear + GitHub 的结合体。</span>
+            </div>
+            <div class="comparison-card">
+              <strong>最适合个人模式</strong>
+              <span>06 Focus Queue Direction，最强调“现在我该处理什么”。</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="direction" id="d1">
+          <div class="direction-header">
+            <div>
+              <div class="eyebrow">Direction 01</div>
+              <h3>Signal-First Control Tower</h3>
+              <div class="direction-meta">把“正在发生什么、哪里需要介入、整体是否健康”放在第一优先级的控制面。适合成为默认主方向。</div>
+              <div class="chip-row">
+                <span class="chip">可信控制面</span>
+                <span class="chip">信号优先</span>
+                <span class="chip">桌面三栏</span>
+              </div>
+            </div>
+          </div>
+          <div class="direction-layout">
+            <div class="mockup">
+              <div class="window-top"><div class="window-dots"><span></span><span></span><span></span></div><div class="window-title">Control Tower / Workspace Alpha</div></div>
+              <div class="shell three-col">
+                <div class="nav-pane stack">
+                  <h5>主导航</h5>
+                  <div class="task-row active"><div class="label-stack"><strong>执行总览</strong><span class="mini-label">Control Tower</span></div><span class="badge run">LIVE</span></div>
+                  <div class="task-row"><div class="label-stack"><strong>Tasks</strong><span class="mini-label">队列与优先级</span></div></div>
+                  <div class="task-row"><div class="label-stack"><strong>Runs</strong><span class="mini-label">Agent 执行链</span></div></div>
+                  <div class="task-row"><div class="label-stack"><strong>Risks</strong><span class="mini-label">异常与升级</span></div><span class="badge risk">4</span></div>
+                  <div class="task-row"><div class="label-stack"><strong>Audit</strong><span class="mini-label">治理与证据</span></div></div>
+                </div>
+                <div class="main-pane stack">
+                  <div class="top-strip">
+                    <div class="stat"><div class="stat-label">执行中</div><div class="stat-value">18</div></div>
+                    <div class="stat"><div class="stat-label">待响应</div><div class="stat-value">5</div></div>
+                    <div class="stat"><div class="stat-label">异常待恢复</div><div class="stat-value">2</div></div>
+                    <div class="stat"><div class="stat-label">今日回写</div><div class="stat-value">31</div></div>
+                  </div>
+                  <div class="hero-card brand">
+                    <h5>系统焦点</h5>
+                    <div class="signal-row active"><div class="label-stack"><strong>Story-128 / 交互请求等待确认</strong><span class="mini-label">Claude Code · 最近心跳 8s 前 · 影响 API 设计</span></div><span class="badge warn">需要决定</span></div>
+                  </div>
+                  <div class="list stack">
+                    <h5>当前任务队列</h5>
+                    <div class="task-row"><div class="label-stack"><strong>Epic-4 / TMUX 恢复策略实现</strong><span class="mini-label">执行稳定 · 预计 12 分钟达 review-ready</span></div><span class="badge good">健康</span></div>
+                    <div class="task-row"><div class="label-stack"><strong>Story-97 / 审计导出页</strong><span class="mini-label">等待 PM 补充导出字段</span></div><span class="badge warn">待响应</span></div>
+                    <div class="task-row"><div class="label-stack"><strong>Task-443 / 写回链路重试</strong><span class="mini-label">自动恢复失败，建议人工接管</span></div><span class="badge risk">升级</span></div>
+                  </div>
+                </div>
+                <div class="side-pane stack">
+                  <h5>上下文检查器</h5>
+                  <div class="card"><div class="label-stack"><strong>最近日志摘要</strong><span class="mini-label">已完成 schema 校验，等待接口策略确认</span></div></div>
+                  <div class="card"><div class="label-stack"><strong>待办动作</strong><span class="mini-label">批准方案 / 补充上下文 / 进入手动接管</span></div></div>
+                  <div class="card"><div class="label-stack"><strong>证据链</strong><span class="mini-label">Story → Run → Session → Artifact → Writeback</span></div></div>
+                </div>
+              </div>
+            </div>
+            <div class="direction-copy">
+              <h4>适合 my-bmad 的原因</h4>
+              <p>它最符合“前台极简、后台严控”的产品目标。用户先看到的是系统当前是否可靠、哪里需要处理，而不是复杂模型本身。</p>
+              <ul>
+                <li>适合个人与团队共用同一控制面语言。</li>
+                <li>最有利于建立“状态可信度”。</li>
+                <li>方便后续扩展风险、治理、审批、审计模块。</li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <section class="direction" id="d2">
+          <div class="direction-header">
+            <div>
+              <div class="eyebrow">Direction 02</div>
+              <h3>Engineer Workspace</h3>
+              <div class="direction-meta">更强调任务列表、详情页和证据链的工程感，适合熟悉 Linear / GitHub 的用户。</div>
+              <div class="chip-row"><span class="chip">Linear x GitHub</span><span class="chip">工程上下文</span><span class="chip">高密度</span></div>
+            </div>
+          </div>
+          <div class="direction-layout">
+            <div class="mockup">
+              <div class="window-top"><div class="window-dots"><span></span><span></span><span></span></div><div class="window-title">Engineer Workspace / Story Queue</div></div>
+              <div class="shell focus">
+                <div class="main-pane stack">
+                  <div class="list stack">
+                    <h5>任务列表</h5>
+                    <div class="task-row active"><div class="label-stack"><strong>Story-214 / Prompt Dispatch 审计链</strong><span class="mini-label">Owner: David · Updated 2m ago</span></div><span class="badge run">RUNNING</span></div>
+                    <div class="task-row"><div class="label-stack"><strong>Story-198 / 队列重试策略</strong><span class="mini-label">Need review from tech lead</span></div><span class="badge warn">REVIEW</span></div>
+                    <div class="task-row"><div class="label-stack"><strong>Story-177 / Billing 权限隔离</strong><span class="mini-label">Blocked by spec clarification</span></div><span class="badge risk">BLOCKED</span></div>
+                  </div>
+                  <div class="timeline">
+                    <h5>工程时间线</h5>
+                    <div class="timeline-track">
+                      <div class="timeline-node"><span></span><div><strong>19:11</strong><div class="note">Run started by routing policy: implementation/default</div></div></div>
+                      <div class="timeline-node"><span></span><div><strong>19:17</strong><div class="note">Agent asked for API contract decision</div></div></div>
+                      <div class="timeline-node"><span></span><div><strong>19:24</strong><div class="note">System wrote execution summary back to Story</div></div></div>
+                    </div>
+                  </div>
+                </div>
+                <div class="side-pane stack">
+                  <div class="hero-card brand"><h5>当前详情</h5><div class="label-stack"><strong>核心动作</strong><span class="mini-label">批准接口选择并继续运行</span></div></div>
+                  <div class="card"><h5>Artifacts</h5><div class="mini-grid"><div class="mini-row"><strong>Spec Diff</strong><span class="badge good">Ready</span></div><div class="mini-row"><strong>Patch</strong><span class="badge warn">Pending</span></div></div></div>
+                  <div class="card"><h5>审查动作</h5><div class="stack"><div class="request-row"><strong>Approve</strong><span class="mini-label">继续执行</span></div><div class="request-row"><strong>Re-route</strong><span class="mini-label">切换 agent</span></div></div></div>
+                </div>
+              </div>
+            </div>
+            <div class="direction-copy">
+              <h4>特点</h4>
+              <p>更适合熟悉 issue / PR / checks 模型的团队。用户会感觉这是一个更工程化、更证据导向的工作台。</p>
+              <ul>
+                <li>详情页强，适合复杂任务调查。</li>
+                <li>适合团队协作与审查流。</li>
+                <li>略弱于控制塔方向的“全局掌控感”。</li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <section class="direction" id="d3">
+          <div class="direction-header">
+            <div>
+              <div class="eyebrow">Direction 03</div>
+              <h3>Run Timeline Console</h3>
+              <div class="direction-meta">以执行流、恢复流和事件流为第一视角，更偏运行编排与异常处理中心。</div>
+              <div class="chip-row"><span class="chip">运行时间线</span><span class="chip">恢复优先</span><span class="chip">可追溯</span></div>
+            </div>
+          </div>
+          <div class="direction-layout">
+            <div class="mockup">
+              <div class="window-top"><div class="window-dots"><span></span><span></span><span></span></div><div class="window-title">Run Timeline Console</div></div>
+              <div class="shell two-col">
+                <div class="main-pane stack">
+                  <div class="hero-card brand"><h5>当前运行链</h5><div class="label-stack"><strong>Run-2204 / Session restored successfully</strong><span class="mini-label">heartbeat restored 6s ago · writeback pending</span></div></div>
+                  <div class="timeline">
+                    <h5>执行 / 恢复时间线</h5>
+                    <div class="timeline-track">
+                      <div class="timeline-node"><span></span><div><strong>启动</strong><div class="note">Created tmux session and injected Story context</div></div></div>
+                      <div class="timeline-node"><span></span><div><strong>阻塞</strong><div class="note">No log activity for 18s, drift detector triggered</div></div></div>
+                      <div class="timeline-node"><span></span><div><strong>恢复</strong><div class="note">Reattached session and replayed latest intent</div></div></div>
+                      <div class="timeline-node"><span></span><div><strong>待确认</strong><div class="note">System requests product-level API decision</div></div></div>
+                    </div>
+                  </div>
+                </div>
+                <div class="side-pane stack">
+                  <div class="card"><h5>健康信号</h5><div class="stack"><div class="signal-row"><strong>Heartbeat</strong><span class="badge good">Healthy</span></div><div class="signal-row"><strong>Log stream</strong><span class="badge run">Live</span></div><div class="signal-row"><strong>Writeback</strong><span class="badge warn">Queued</span></div></div></div>
+                  <div class="card"><h5>建议动作</h5><div class="stack"><div class="request-row"><strong>Respond now</strong><span class="mini-label">保持上下文连续</span></div><div class="request-row"><strong>Escalate</strong><span class="mini-label">转人工 owner</span></div></div></div>
+                </div>
+              </div>
+            </div>
+            <div class="direction-copy">
+              <h4>特点</h4>
+              <p>非常适合 my-bmad 的差异化能力展示，尤其是长时间运行、异常恢复和人工接管路径。</p>
+              <ul>
+                <li>最强的“系统正在工作”感。</li>
+                <li>适合支持 / 排障 / 运维角色。</li>
+                <li>如果作为默认首页，可能对新用户略重。</li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <section class="direction" id="d4">
+          <div class="direction-header">
+            <div>
+              <div class="eyebrow">Direction 04</div>
+              <h3>Review Hub</h3>
+              <div class="direction-meta">把“结果是否可验收”作为第一优先级，适合强调团队治理、审批和 review-ready 体验。</div>
+              <div class="chip-row"><span class="chip">Review-first</span><span class="chip">团队治理</span><span class="chip">结果验收</span></div>
+            </div>
+          </div>
+          <div class="direction-layout">
+            <div class="mockup">
+              <div class="window-top"><div class="window-dots"><span></span><span></span><span></span></div><div class="window-title">Review Hub / Delivery Readiness</div></div>
+              <div class="shell focus">
+                <div class="main-pane stack">
+                  <div class="hero-card brand"><h5>待验收结果</h5><div class="label-stack"><strong>Story-302 / 审计导出完成首版</strong><span class="mini-label">ready for PM + Tech Lead review</span></div></div>
+                  <div class="mini-grid">
+                    <div class="card"><h5>关键产出</h5><div class="stack"><div class="mini-row"><strong>UI Diff</strong><span class="badge good">Ready</span></div><div class="mini-row"><strong>Spec Update</strong><span class="badge good">Ready</span></div></div></div>
+                    <div class="card"><h5>执行摘要</h5><div class="note">2 次 agent interaction · 1 次恢复 · 0 次人工覆盖</div></div>
+                  </div>
+                  <div class="list stack">
+                    <h5>验收决策</h5>
+                    <div class="task-row"><div class="label-stack"><strong>Approve & continue</strong><span class="mini-label">进入后续派发</span></div></div>
+                    <div class="task-row"><div class="label-stack"><strong>Request rerun</strong><span class="mini-label">保留现有上下文重跑</span></div></div>
+                    <div class="task-row"><div class="label-stack"><strong>Hand off to human</strong><span class="mini-label">转人工继续</span></div></div>
+                  </div>
+                </div>
+                <div class="side-pane stack">
+                  <div class="card"><h5>审计链</h5><div class="note">Created → Routed → Started → Interaction → Recovery → Review-ready → Writeback</div></div>
+                  <div class="card"><h5>风险摘要</h5><div class="note">无关键阻塞，1 个待确认边界问题</div></div>
+                </div>
+              </div>
+            </div>
+            <div class="direction-copy">
+              <h4>特点</h4>
+              <p>如果产品早期更希望建立“治理可信度”，这个方向很强。但它更像二级关键视图，而不是默认入口。</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="direction" id="d5">
+          <div class="direction-header">
+            <div>
+              <div class="eyebrow">Direction 05</div>
+              <h3>Command Grid</h3>
+              <div class="direction-meta">更像团队治理与运营总控台，适合展示配额、SLA、风险、健康度和多项目编排。</div>
+              <div class="chip-row"><span class="chip">治理总控</span><span class="chip">多项目</span><span class="chip">指标强</span></div>
+            </div>
+          </div>
+          <div class="direction-layout">
+            <div class="mockup">
+              <div class="window-top"><div class="window-dots"><span></span><span></span><span></span></div><div class="window-title">Command Grid / Org Ops</div></div>
+              <div class="shell">
+                <div class="top-strip">
+                  <div class="stat"><div class="stat-label">Workspace SLA</div><div class="stat-value">98.7%</div></div>
+                  <div class="stat"><div class="stat-label">Auto route success</div><div class="stat-value">92%</div></div>
+                  <div class="stat"><div class="stat-label">Open approvals</div><div class="stat-value">11</div></div>
+                  <div class="stat"><div class="stat-label">Sessions active</div><div class="stat-value">43</div></div>
+                </div>
+                <div class="mini-grid">
+                  <div class="card"><h5>Projects at risk</h5><div class="stack"><div class="signal-row"><strong>Workspace Alpha</strong><span class="badge risk">3</span></div><div class="signal-row"><strong>Billing Revamp</strong><span class="badge warn">2</span></div></div></div>
+                  <div class="card"><h5>Approvals needed</h5><div class="stack"><div class="signal-row"><strong>Launch gate</strong><span class="badge warn">PM</span></div><div class="signal-row"><strong>Agent reroute</strong><span class="badge warn">Lead</span></div></div></div>
+                </div>
+              </div>
+            </div>
+            <div class="direction-copy">
+              <h4>特点</h4>
+              <p>强在团队运营与治理，不强在个人用户“第一眼就会用”。更适合作为工作空间级总控页。</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="direction" id="d6">
+          <div class="direction-header">
+            <div>
+              <div class="eyebrow">Direction 06</div>
+              <h3>Focus Queue</h3>
+              <div class="direction-meta">把“现在最值得处理的几件事”放到最前，适合个人模式和高频操作者。</div>
+              <div class="chip-row"><span class="chip">个人推进</span><span class="chip">低打断</span><span class="chip">优先队列</span></div>
+            </div>
+          </div>
+          <div class="direction-layout">
+            <div class="mockup">
+              <div class="window-top"><div class="window-dots"><span></span><span></span><span></span></div><div class="window-title">Focus Queue / My Work</div></div>
+              <div class="shell focus">
+                <div class="main-pane stack">
+                  <div class="hero-card brand"><h5>你现在最该处理的事</h5><div class="label-stack"><strong>回复 Story-128 的 API 选择问题</strong><span class="mini-label">预计 30 秒内完成，执行即可继续</span></div></div>
+                  <div class="list stack">
+                    <h5>按优先级排序</h5>
+                    <div class="task-row active"><div class="label-stack"><strong>待响应</strong><span class="mini-label">2 项会阻塞执行</span></div><span class="badge warn">Now</span></div>
+                    <div class="task-row"><div class="label-stack"><strong>待验收</strong><span class="mini-label">3 项已 review-ready</span></div><span class="badge good">Next</span></div>
+                    <div class="task-row"><div class="label-stack"><strong>异常待恢复</strong><span class="mini-label">1 项建议人工查看</span></div><span class="badge risk">Soon</span></div>
+                  </div>
+                </div>
+                <div class="side-pane stack">
+                  <div class="card"><h5>今日进度</h5><div class="note">已推进 14 个 task · 4 个 writeback · 2 个 review 完成</div></div>
+                  <div class="card"><h5>快速动作</h5><div class="stack"><div class="request-row"><strong>Approve all safe</strong><span class="mini-label">批量继续</span></div><div class="request-row"><strong>Open risk queue</strong><span class="mini-label">查看阻塞</span></div></div></div>
+                </div>
+              </div>
+            </div>
+            <div class="direction-copy">
+              <h4>特点</h4>
+              <p>最适合个人用户的日常推进，但在团队治理和全局可见性上弱于控制塔方向。</p>
+            </div>
+          </div>
+        </section>
+
+        <div class="footer-note">
+          <strong>建议的锁定策略：</strong> 以 <strong>01 控制塔 Direction</strong> 作为默认主方向，吸收 <strong>02</strong> 的工程详情结构与 <strong>03</strong> 的执行时间线表达。这样最贴合 my-bmad 的差异化价值：既像产品控制面一样清晰，又像工程系统一样可信。
+        </div>
+      </main>
+    </div>
+  </body>
+</html>
