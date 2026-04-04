@@ -44,8 +44,7 @@ skills-lock.json
 .playwright-mcp/
 
 # BMAD methodology system and planning artifacts (local use only)
-/_bmad/
-/_bmad-output/
+
 
 # runtime data
 /data/
