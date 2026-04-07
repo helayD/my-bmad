@@ -2,6 +2,7 @@
 
 import dynamic from "next/dynamic";
 import type { RepoConfig } from "@/lib/types";
+import type { WorkspaceSummary } from "@/lib/workspace/types";
 
 const AppSidebarInner = dynamic(
   () => import("@/components/layout/app-sidebar").then((m) => ({ default: m.AppSidebar })),
@@ -14,6 +15,7 @@ interface AppSidebarClientProps {
   localFsEnabled?: boolean;
   githubEnabled?: boolean;
   personalWorkspaceSlug?: string;
+  workspaces?: WorkspaceSummary[];
 }
 
 export function AppSidebarClient(props: AppSidebarClientProps) {

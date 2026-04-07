@@ -1,35 +1,7 @@
 import { prisma } from "@/lib/db/client";
 import { PrismaClientKnownRequestError } from "@prisma/client/runtime/library";
 import type { EnsureWorkspaceResult } from "@/lib/workspace/types";
-
-/**
- * Generate a URL-safe slug from a user identifier (email or name).
- *
- * Rules:
- * 1. Take email @ prefix, or name
- * 2. toLowerCase()
- * 3. Replace all non [a-z0-9] chars with "-"
- * 4. Merge consecutive "-", trim leading/trailing "-"
- * 5. Truncate to 39 chars (reserve space for -xxxx collision suffix, total ≤ 44)
- * 6. Fallback to "user" if result is empty
- */
-export function generateSlug(userIdentifier: string): string {
-  let base = userIdentifier;
-
-  const atIndex = base.indexOf("@");
-  if (atIndex > 0) {
-    base = base.substring(0, atIndex);
-  }
-
-  base = base
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "")
-    .substring(0, 39);
-
-  return base || "user";
-}
+import { generateSlug, randomHex } from "@/lib/workspace/slug-utils";
 
 /**
  * Generate a human-readable workspace name from user info.
@@ -158,13 +130,4 @@ export async function ensurePersonalWorkspace(
     }
     throw error;
   }
-}
-
-function randomHex(length: number): string {
-  const chars = "0123456789abcdef";
-  let result = "";
-  for (let i = 0; i < length; i++) {
-    result += chars[Math.floor(Math.random() * chars.length)];
-  }
-  return result;
 }

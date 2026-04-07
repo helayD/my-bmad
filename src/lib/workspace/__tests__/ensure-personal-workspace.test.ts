@@ -1,8 +1,8 @@
 import "dotenv/config";
 import { describe, it, expect, beforeAll, beforeEach, afterEach, afterAll } from "vitest";
 import { PrismaClient } from "@/generated/prisma/client";
+import { generateSlug } from "@/lib/workspace/slug-utils";
 import {
-  generateSlug,
   generateWorkspaceName,
   ensurePersonalWorkspace,
 } from "@/lib/workspace/ensure-personal-workspace";

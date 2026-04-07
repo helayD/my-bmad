@@ -111,3 +111,43 @@ export const getWorkspaceMembership = cache(
     });
   }
 );
+
+/**
+ * Get all workspaces a user is a member of. Cached per request via React cache().
+ * Used by sidebar to display workspace list.
+ */
+export const getWorkspacesForUser = cache(
+  async (userId: string) => {
+    return prisma.workspaceMembership.findMany({
+      where: { userId },
+      include: {
+        workspace: {
+          select: { id: true, name: true, slug: true, type: true },
+        },
+      },
+      orderBy: { workspace: { updatedAt: "desc" } },
+    });
+  }
+);
+
+/**
+ * Get count of active projects in a workspace. Cached per request via React cache().
+ */
+export const getActiveProjectCount = cache(
+  async (workspaceId: string) => {
+    return prisma.project.count({
+      where: { workspaceId, status: "active" },
+    });
+  }
+);
+
+/**
+ * Get a workspace by its ID. Cached per request via React cache().
+ */
+export const getWorkspaceById = cache(
+  async (workspaceId: string) => {
+    return prisma.workspace.findUnique({
+      where: { id: workspaceId },
+    });
+  }
+);

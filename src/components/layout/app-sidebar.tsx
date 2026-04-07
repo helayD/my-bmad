@@ -35,7 +35,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { AddRepoDialog } from "@/components/layout/add-repo-dialog";
 import { UserMenu } from "@/components/layout/user-menu";
+import { CreateTeamWorkspaceDialog } from "@/components/workspace/create-team-workspace-dialog";
 import type { RepoConfig } from "@/lib/types";
+import type { WorkspaceSummary } from "@/lib/workspace/types";
 
 const SUPER_ADMIN_EMAIL = "dev@dahmani.fr";
 
@@ -45,6 +47,7 @@ interface AppSidebarProps {
   localFsEnabled?: boolean;
   githubEnabled?: boolean;
   personalWorkspaceSlug?: string;
+  workspaces?: WorkspaceSummary[];
 }
 
 const projectTabs = [
@@ -54,7 +57,8 @@ const projectTabs = [
   { label: "Library", segment: "docs", icon: FileText },
 ];
 
-export function AppSidebar({ repos, userEmail, localFsEnabled, githubEnabled, personalWorkspaceSlug }: AppSidebarProps) {
+export function AppSidebar({ repos, userEmail, localFsEnabled, githubEnabled, personalWorkspaceSlug: _personalWorkspaceSlug, workspaces = [] }: AppSidebarProps) {
+  void _personalWorkspaceSlug;
   const pathname = usePathname();
   const router = useRouter();
 
@@ -175,10 +179,40 @@ export function AppSidebar({ repos, userEmail, localFsEnabled, githubEnabled, pe
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
+        {workspaces.length > 0 && (
+          <SidebarGroup>
+            <SidebarGroupLabel>工作空间</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {workspaces.map((ws) => {
+                  const wsPath = `/workspace/${ws.slug}`;
+                  const isWsActive = pathname.startsWith(wsPath);
+                  return (
+                    <SidebarMenuItem key={ws.id}>
+                      <SidebarMenuButton asChild isActive={isWsActive} tooltip={ws.name}>
+                        <Link href={wsPath}>
+                          <span className="truncate">{ws.name}</span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  );
+                })}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
       </SidebarContent>
 
       <SidebarFooter>
         <div className="space-y-2 px-1 pb-2 group-data-[collapsible=icon]:hidden">
+          <CreateTeamWorkspaceDialog
+            trigger={
+              <Button variant="outline" size="lg" className="w-full">
+                <PlusIcon aria-hidden="true" />
+                创建团队空间
+              </Button>
+            }
+          />
           <AddRepoDialog
             importedRepos={repos}
             localFsEnabled={localFsEnabled}
