@@ -8,6 +8,7 @@ import {
   getAuthenticatedRepos,
 } from "@/lib/db/helpers";
 import { getGitHubToken } from "@/lib/github/client";
+import { ensurePersonalWorkspace } from "@/lib/workspace/ensure-personal-workspace";
 
 export default async function DashboardLayout({
   children,
@@ -17,7 +18,10 @@ export default async function DashboardLayout({
   const session = await getAuthenticatedSession();
   if (!session) redirect("/login");
 
-  const repos = await getAuthenticatedRepos(session.userId);
+  const [repos, personalWorkspaceResult] = await Promise.all([
+    getAuthenticatedRepos(session.userId),
+    ensurePersonalWorkspace(session.userId, session.email, session.name),
+  ]);
 
   const localFsEnabled = process.env.ENABLE_LOCAL_FS === "true";
   const hasGitHubOAuth =
@@ -34,6 +38,7 @@ export default async function DashboardLayout({
           userEmail={session.email}
           localFsEnabled={localFsEnabled}
           githubEnabled={hasGitHubToken}
+          personalWorkspaceSlug={personalWorkspaceResult.workspace.slug}
         />
         <SidebarInset>
           <AppHeader />

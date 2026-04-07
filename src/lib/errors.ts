@@ -7,6 +7,7 @@ const ERROR_MESSAGES: Record<string, string> = {
     "Ce chemin n'existe pas sur le serveur. La fonctionnalité dossiers locaux nécessite un déploiement self-hosted.",
   PATH_STALE: "Ce dossier local n'existe plus ou a été déplacé.",
   REGISTRATION_DISABLED: "L'inscription est désactivée sur ce serveur.",
+  WORKSPACE_ERROR: "Une erreur s'est produite lors de l'opération sur l'espace de travail.",
 };
 
 export function sanitizeError(error: unknown, code: string): string {

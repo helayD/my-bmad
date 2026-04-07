@@ -10,11 +10,11 @@ import type { RepoConfig, ActionResult, UserRole } from "@/lib/types";
  * Returns null if not authenticated.
  */
 export const getAuthenticatedSession = cache(
-  async (): Promise<{ userId: string; role: UserRole; email: string } | null> => {
+  async (): Promise<{ userId: string; role: UserRole; email: string; name: string | null } | null> => {
     const session = await auth.api.getSession({ headers: await headers() });
     if (!session?.user?.id) return null;
     const role = (session.user.role === "admin" ? "admin" : "user") satisfies UserRole;
-    return { userId: session.user.id, role, email: session.user.email };
+    return { userId: session.user.id, role, email: session.user.email, name: session.user.name ?? null };
   }
 );
 
@@ -73,5 +73,41 @@ export const getAuthenticatedRepoConfig = cache(
       select: { owner: true, name: true, branch: true, displayName: true, description: true, sourceType: true, localPath: true, lastSyncedAt: true },
     });
     return row as RepoConfig | null;
+  }
+);
+
+/**
+ * Get the personal workspace for a user. Cached per request via React cache().
+ * Returns workspace with its membership record, or null if not found.
+ */
+export const getPersonalWorkspace = cache(
+  async (userId: string) => {
+    return prisma.workspace.findFirst({
+      where: { ownerId: userId, type: "PERSONAL" },
+      include: { memberships: { where: { userId }, take: 1 } },
+    });
+  }
+);
+
+/**
+ * Get a workspace by slug with its projects. Cached per request via React cache().
+ */
+export const getWorkspaceBySlug = cache(
+  async (slug: string) => {
+    return prisma.workspace.findUnique({
+      where: { slug },
+      include: { projects: { orderBy: { updatedAt: "desc" } } },
+    });
+  }
+);
+
+/**
+ * Get a workspace membership for permission verification. Cached per request via React cache().
+ */
+export const getWorkspaceMembership = cache(
+  async (workspaceId: string, userId: string) => {
+    return prisma.workspaceMembership.findFirst({
+      where: { workspaceId, userId },
+    });
   }
 );

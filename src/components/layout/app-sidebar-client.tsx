@@ -13,6 +13,7 @@ interface AppSidebarClientProps {
   userEmail?: string;
   localFsEnabled?: boolean;
   githubEnabled?: boolean;
+  personalWorkspaceSlug?: string;
 }
 
 export function AppSidebarClient(props: AppSidebarClientProps) {

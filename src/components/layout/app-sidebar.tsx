@@ -44,6 +44,7 @@ interface AppSidebarProps {
   userEmail?: string;
   localFsEnabled?: boolean;
   githubEnabled?: boolean;
+  personalWorkspaceSlug?: string;
 }
 
 const projectTabs = [
@@ -53,7 +54,7 @@ const projectTabs = [
   { label: "Library", segment: "docs", icon: FileText },
 ];
 
-export function AppSidebar({ repos, userEmail, localFsEnabled, githubEnabled }: AppSidebarProps) {
+export function AppSidebar({ repos, userEmail, localFsEnabled, githubEnabled, personalWorkspaceSlug }: AppSidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
 
