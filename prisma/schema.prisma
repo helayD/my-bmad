@@ -8,6 +8,19 @@ generator client {
   output   = "../src/generated/prisma"
 }
 
+enum WorkspaceType {
+  PERSONAL
+  TEAM
+}
+
+enum WorkspaceRole {
+  OWNER
+  ADMIN
+  MEMBER
+  VIEWER
+  AUDITOR
+}
+
 model User {
   id            String    @id @default(cuid())
   name          String?
@@ -21,6 +34,8 @@ model User {
   sessions      Session[]
   accounts      Account[]
   repos         Repo[]
+  ownedWorkspaces       Workspace[]           @relation("WorkspaceOwner")
+  workspaceMemberships  WorkspaceMembership[]
 
   @@map("users")
 }
@@ -71,6 +86,61 @@ model Verification {
   @@map("verifications")
 }
 
+model Workspace {
+  id         String                @id @default(cuid())
+  name       String
+  slug       String                @unique
+  type       WorkspaceType
+  ownerId    String
+  settings   Json?
+  createdAt  DateTime              @default(now())
+  updatedAt  DateTime              @updatedAt
+
+  owner      User                  @relation("WorkspaceOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  projects   Project[]
+  memberships WorkspaceMembership[]
+
+  @@index([ownerId])
+  @@map("workspaces")
+}
+
+model Project {
+  id          String      @id @default(cuid())
+  name        String
+  slug        String
+  workspaceId String
+  repoId      String?
+  status      String      @default("active")
+  settings    Json?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  workspace   Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  repo        Repo?       @relation(fields: [repoId], references: [id], onDelete: SetNull)
+
+  @@unique([workspaceId, slug])
+  @@index([workspaceId])
+  @@index([repoId])
+  @@map("projects")
+}
+
+model WorkspaceMembership {
+  id          String         @id @default(cuid())
+  workspaceId String
+  userId      String
+  role        WorkspaceRole
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  workspace   Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId])
+  @@index([workspaceId])
+  @@index([userId])
+  @@map("workspace_memberships")
+}
+
 model Repo {
   id            String    @id @default(cuid())
   owner         String
@@ -84,6 +154,7 @@ model Repo {
   lastSyncedAt  DateTime?
   userId        String
   user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projects      Project[]
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
