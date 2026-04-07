@@ -151,3 +151,35 @@ export const getWorkspaceById = cache(
     });
   }
 );
+
+/**
+ * Get all members of a workspace with user info. Cached per request via React cache().
+ * Returns members sorted by createdAt ascending.
+ */
+export const getWorkspaceMembers = cache(
+  async (workspaceId: string) => {
+    return prisma.workspaceMembership.findMany({
+      where: { workspaceId },
+      include: {
+        user: { select: { id: true, name: true, email: true } },
+      },
+      orderBy: { createdAt: "asc" },
+    });
+  }
+);
+
+/**
+ * Get all PENDING invitations for a workspace. Cached per request via React cache().
+ * Returns invitations sorted by createdAt descending.
+ */
+export const getWorkspaceInvitations = cache(
+  async (workspaceId: string) => {
+    return prisma.workspaceInvitation.findMany({
+      where: { workspaceId, status: "PENDING" },
+      include: {
+        invitedBy: { select: { id: true, name: true } },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+  }
+);

@@ -1,17 +1,29 @@
 const ERROR_MESSAGES: Record<string, string> = {
-  DB_ERROR: "Une erreur s'est produite. Veuillez réessayer.",
-  GITHUB_ERROR: "Erreur lors de la communication avec GitHub.",
-  FS_ERROR: "Erreur lors de la lecture du système de fichiers.",
-  LOCAL_DISABLED: "Le mode local n'est pas activé sur ce serveur.",
+  DB_ERROR: "操作失败，请稍后重试。",
+  GITHUB_ERROR: "与 GitHub 通信时发生错误。",
+  FS_ERROR: "读取文件系统时发生错误。",
+  LOCAL_DISABLED: "本服务器未启用本地模式。",
   PATH_NOT_FOUND:
-    "Ce chemin n'existe pas sur le serveur. La fonctionnalité dossiers locaux nécessite un déploiement self-hosted.",
-  PATH_STALE: "Ce dossier local n'existe plus ou a été déplacé.",
-  REGISTRATION_DISABLED: "L'inscription est désactivée sur ce serveur.",
-  WORKSPACE_ERROR: "Une erreur s'est produite lors de l'opération sur l'espace de travail.",
-  PROJECT_LIMIT_EXCEEDED: "Le nombre maximum de projets actifs a été atteint. Veuillez archiver des projets existants ou mettre à niveau votre plan.",
+    "此路径在服务器上不存在。本地文件夹功能需要 self-hosted 部署。",
+  PATH_STALE: "此本地文件夹已不存在或已被移动。",
+  REGISTRATION_DISABLED: "此服务器已禁用注册。",
+  WORKSPACE_ERROR: "工作空间操作失败，请稍后重试。",
+  PROJECT_LIMIT_EXCEEDED: "活跃项目数已达上限，请先归档已完成的项目，或升级套餐。",
+  INVITATION_ERROR: "邀请操作失败，请稍后重试。",
+  MEMBER_ALREADY_EXISTS: "该用户已经是此工作空间的成员。",
+  INVITATION_EXPIRED: "邀请已过期，请联系管理员重新发送邀请。",
+  INVITATION_INVALID: "邀请链接无效或已被使用。",
+  CANNOT_REMOVE_SOLE_OWNER: "无法移除唯一的 Owner，请先转移所有权。",
+  MEMBER_ERROR: "成员操作失败，请稍后重试。",
+  SELF_REMOVE_NOT_ALLOWED: "不能将自己从工作空间移除。",
+  ROLE_UPDATE_ERROR: "角色更新失败，请稍后重试。",
+  CANNOT_ASSIGN_OWNER_ROLE: "只有 Owner 可以赋予其他成员 Owner 角色。",
+  CANNOT_CHANGE_OWN_ROLE: "不能修改自己的角色，请联系其他管理员操作。",
+  SETTINGS_UPDATE_ERROR: "治理策略更新失败，请稍后重试。",
+  TEAM_WORKSPACE_REQUIRED: "执行策略配置仅适用于团队工作空间。",
 };
 
 export function sanitizeError(error: unknown, code: string): string {
   console.error(`[${code}]`, error);
-  return ERROR_MESSAGES[code] ?? "Une erreur inattendue s'est produite.";
+  return ERROR_MESSAGES[code] ?? "发生了意外错误，请稍后重试。";
 }
