@@ -1,5 +1,6 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Plus } from "lucide-react";
+import { Plus, Users } from "lucide-react";
 import {
   getAuthenticatedSession,
   getWorkspaceBySlug,
@@ -61,17 +62,27 @@ export default async function WorkspacePage({ params }: WorkspacePageProps) {
             {isTeam ? "团队工作空间" : "个人工作空间"}
           </p>
         </div>
-        {isTeam && canManage && (
-          <CreateProjectDialog
-            workspaceId={workspace.id}
-            trigger={
-              <Button>
-                <Plus className="mr-1 h-4 w-4" />
-                创建项目
-              </Button>
-            }
-          />
-        )}
+        <div className="flex items-center gap-2">
+          {isTeam && canManage && (
+            <Button asChild variant="outline">
+              <Link href={`/workspace/${slug}/members`}>
+                <Users className="mr-1 h-4 w-4" />
+                成员管理
+              </Link>
+            </Button>
+          )}
+          {isTeam && canManage && (
+            <CreateProjectDialog
+              workspaceId={workspace.id}
+              trigger={
+                <Button>
+                  <Plus className="mr-1 h-4 w-4" />
+                  创建项目
+                </Button>
+              }
+            />
+          )}
+        </div>
       </div>
 
       {isTeam && (

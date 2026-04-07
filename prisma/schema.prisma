@@ -36,6 +36,7 @@ model User {
   repos         Repo[]
   ownedWorkspaces       Workspace[]           @relation("WorkspaceOwner")
   workspaceMemberships  WorkspaceMembership[]
+  sentInvitations       WorkspaceInvitation[]  @relation("InvitedByUser")
 
   @@map("users")
 }
@@ -98,7 +99,8 @@ model Workspace {
 
   owner      User                  @relation("WorkspaceOwner", fields: [ownerId], references: [id], onDelete: Restrict)
   projects   Project[]
-  memberships WorkspaceMembership[]
+  memberships  WorkspaceMembership[]
+  invitations  WorkspaceInvitation[]
 
   @@index([ownerId])
   @@map("workspaces")
@@ -139,6 +141,27 @@ model WorkspaceMembership {
   @@index([workspaceId])
   @@index([userId])
   @@map("workspace_memberships")
+}
+
+model WorkspaceInvitation {
+  id              String         @id @default(cuid())
+  workspaceId     String
+  email           String
+  role            WorkspaceRole  @default(MEMBER)
+  token           String         @unique
+  invitedByUserId String
+  status          String         @default("PENDING")
+  expiresAt       DateTime
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  workspace       Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  invitedBy       User           @relation("InvitedByUser", fields: [invitedByUserId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@index([workspaceId, email])
+  @@index([email])
+  @@map("workspace_invitations")
 }
 
 model Repo {

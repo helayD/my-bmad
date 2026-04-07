@@ -15,6 +15,7 @@ import {
   FileText,
   Shield,
   PlusIcon,
+  Users,
 } from "lucide-react";
 import { Collapsible } from "radix-ui";
 import {
@@ -186,7 +187,41 @@ export function AppSidebar({ repos, userEmail, localFsEnabled, githubEnabled, pe
               <SidebarMenu>
                 {workspaces.map((ws) => {
                   const wsPath = `/workspace/${ws.slug}`;
+                  const membersPath = `${wsPath}/members`;
                   const isWsActive = pathname.startsWith(wsPath);
+                  const isTeam = ws.type === "TEAM";
+                  if (isTeam) {
+                    return (
+                      <Collapsible.Root
+                        key={ws.id}
+                        open={isWsActive}
+                        className="group/ws-collapsible"
+                      >
+                        <SidebarMenuItem>
+                          <Collapsible.Trigger asChild>
+                            <SidebarMenuButton asChild isActive={pathname === wsPath} tooltip={ws.name}>
+                              <Link href={wsPath}>
+                                <span className="truncate">{ws.name}</span>
+                                <ChevronRight className="ml-auto h-4 w-4 transition-transform duration-200 group-data-[state=open]/ws-collapsible:rotate-90" />
+                              </Link>
+                            </SidebarMenuButton>
+                          </Collapsible.Trigger>
+                          <Collapsible.Content className="group-data-[collapsible=icon]:hidden">
+                            <SidebarMenuSub>
+                              <SidebarMenuSubItem>
+                                <SidebarMenuSubButton asChild isActive={pathname.startsWith(membersPath)}>
+                                  <Link href={membersPath}>
+                                    <Users className="h-3.5 w-3.5" />
+                                    <span>成员</span>
+                                  </Link>
+                                </SidebarMenuSubButton>
+                              </SidebarMenuSubItem>
+                            </SidebarMenuSub>
+                          </Collapsible.Content>
+                        </SidebarMenuItem>
+                      </Collapsible.Root>
+                    );
+                  }
                   return (
                     <SidebarMenuItem key={ws.id}>
                       <SidebarMenuButton asChild isActive={isWsActive} tooltip={ws.name}>
