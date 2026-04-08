@@ -95,6 +95,49 @@ async function requireAuthenticated(): Promise<ActionResult<{ userId: string }>>
 }
 
 // ---------------------------------------------------------------------------
+// User repo listing (GitHub + Local)
+// ---------------------------------------------------------------------------
+
+/**
+ * Get all imported repos for the current user (GitHub and Local).
+ * No GitHub token required — queries the database only.
+ */
+export async function getUserReposAction(): Promise<
+  ActionResult<{
+    id: string;
+    owner: string;
+    name: string;
+    displayName: string;
+    sourceType: string;
+    localPath: string | null;
+    lastSyncedAt: Date | null;
+  }[]>
+> {
+  const authResult = await requireAuthenticated();
+  if (!authResult.success) return authResult;
+  const { userId } = authResult.data;
+
+  try {
+    const repos = await prisma.repo.findMany({
+      where: { userId },
+      select: {
+        id: true,
+        owner: true,
+        name: true,
+        displayName: true,
+        sourceType: true,
+        localPath: true,
+        lastSyncedAt: true,
+      },
+      orderBy: { createdAt: "desc" },
+    });
+    return { success: true, data: repos };
+  } catch (error: unknown) {
+    return { success: false, error: sanitizeError(error, "DB_ERROR"), code: "DB_ERROR" };
+  }
+}
+
+// ---------------------------------------------------------------------------
 // GitHub-only actions
 // ---------------------------------------------------------------------------
 

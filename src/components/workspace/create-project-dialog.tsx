@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useEffect, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import {
   Dialog,
   DialogContent,
@@ -10,24 +11,65 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { createProjectAction } from "@/actions/workspace-actions";
+import { getUserReposAction } from "@/actions/repo-actions";
+
+interface RepoOption {
+  id: string;
+  displayName: string;
+  sourceType: string;
+}
 
 interface CreateProjectDialogProps {
   workspaceId: string;
+  workspaceSlug: string;
   trigger: React.ReactNode;
 }
 
-export function CreateProjectDialog({ workspaceId, trigger }: CreateProjectDialogProps) {
+export function CreateProjectDialog({ workspaceId, workspaceSlug, trigger }: CreateProjectDialogProps) {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
+  const [selectedRepoId, setSelectedRepoId] = useState<string>("");
+  const [repos, setRepos] = useState<RepoOption[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [errorCode, setErrorCode] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
   const trimmedName = name.trim();
   const charCount = trimmedName.length;
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    const loadRepos = async () => {
+      const result = await getUserReposAction();
+      if (cancelled) return;
+      if (result.success) {
+        setRepos(
+          result.data.map((r) => ({
+            id: r.id,
+            displayName: r.displayName,
+            sourceType: r.sourceType,
+          }))
+        );
+      }
+    };
+    startTransition(() => {
+      loadRepos();
+    });
+    return () => { cancelled = true; };
+  }, [open]);
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -36,10 +78,12 @@ export function CreateProjectDialog({ workspaceId, trigger }: CreateProjectDialo
     setError(null);
     setErrorCode(null);
     startTransition(async () => {
-      const result = await createProjectAction({ workspaceId, name: trimmedName });
+      const repoId = selectedRepoId && selectedRepoId !== "none" ? selectedRepoId : undefined;
+      const result = await createProjectAction({ workspaceId, name: trimmedName, repoId });
       if (result.success) {
         setOpen(false);
-        setName("");
+        resetForm();
+        router.push(`/workspace/${workspaceSlug}/project/${result.data.project.slug}`);
       } else {
         setError(result.error);
         setErrorCode(result.code ?? null);
@@ -47,8 +91,16 @@ export function CreateProjectDialog({ workspaceId, trigger }: CreateProjectDialo
     });
   }
 
+  function resetForm() {
+    setName("");
+    setSelectedRepoId("");
+    setRepos(null);
+    setError(null);
+    setErrorCode(null);
+  }
+
   return (
-    <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) { setName(""); setError(null); setErrorCode(null); } }}>
+    <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) resetForm(); }}>
       <DialogTrigger asChild>{trigger}</DialogTrigger>
       <DialogContent>
         <DialogHeader>
@@ -72,12 +124,50 @@ export function CreateProjectDialog({ workspaceId, trigger }: CreateProjectDialo
               autoFocus
             />
             <div className="text-xs text-muted-foreground">{charCount}/100</div>
-            {error && (
-              <p className={`text-sm ${errorCode === "PROJECT_LIMIT_EXCEEDED" ? "text-destructive font-medium" : "text-destructive"}`}>
-                {error}
+          </div>
+
+          <div className="space-y-2">
+            <label htmlFor="repo-select" className="text-sm font-medium">
+              关联仓库 <span className="text-muted-foreground font-normal">（可选）</span>
+            </label>
+            {repos === null ? (
+              <p className="text-sm text-muted-foreground">加载仓库列表…</p>
+            ) : repos.length > 0 ? (
+              <Select
+                value={selectedRepoId}
+                onValueChange={setSelectedRepoId}
+                disabled={isPending}
+              >
+                <SelectTrigger id="repo-select">
+                  <SelectValue placeholder="不关联仓库" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">不关联仓库</SelectItem>
+                  {repos.map((repo) => (
+                    <SelectItem key={repo.id} value={repo.id}>
+                      <span className="flex items-center gap-2">
+                        {repo.displayName}
+                        <Badge variant="outline" className="text-xs">
+                          {repo.sourceType}
+                        </Badge>
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                请先在仪表盘导入仓库
               </p>
             )}
           </div>
+
+          {error && (
+            <p className={`text-sm ${errorCode === "PROJECT_LIMIT_EXCEEDED" ? "text-destructive font-medium" : "text-destructive"}`}>
+              {error}
+            </p>
+          )}
+
           <DialogFooter>
             <Button
               type="button"

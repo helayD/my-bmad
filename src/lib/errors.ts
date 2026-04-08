@@ -19,8 +19,11 @@ const ERROR_MESSAGES: Record<string, string> = {
   ROLE_UPDATE_ERROR: "角色更新失败，请稍后重试。",
   CANNOT_ASSIGN_OWNER_ROLE: "只有 Owner 可以赋予其他成员 Owner 角色。",
   CANNOT_CHANGE_OWN_ROLE: "不能修改自己的角色，请联系其他管理员操作。",
+  SETTINGS_READ_ERROR: "治理策略读取失败，请稍后重试。",
   SETTINGS_UPDATE_ERROR: "治理策略更新失败，请稍后重试。",
   TEAM_WORKSPACE_REQUIRED: "执行策略配置仅适用于团队工作空间。",
+  PROJECT_IMPORT_ERROR: "项目导入失败，请稍后重试。",
+  REPO_NOT_FOUND: "找不到指定的仓库记录。",
 };
 
 export function sanitizeError(error: unknown, code: string): string {

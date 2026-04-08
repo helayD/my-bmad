@@ -21,3 +21,13 @@
 - **`types.ts:31` ProjectLimitExceededError 法语消息未迁移** — Error 构造函数中的 message 仍为法语，Story 1.9 已覆盖 `errors.ts` 的 ERROR_MESSAGES，但自定义 Error 类的构造消息未同步处理。
 - **非事务性 OWNER 计数竞态条件** — 两个并发降级请求可能同时通过 ownerCount 检查。Story spec 已说明不使用 $transaction（Prisma 6.x 交互事务问题）。后续可考虑乐观锁或 DB 约束方案。
 - **`workspace-actions.ts` 认证/校验错误消息为英文** — "Not authenticated"/"Invalid input"/"Access denied" 为全项目一致的预存模式，非本 Story 引入。
+
+## Deferred from: code review of 1-6-团队级执行与治理策略配置 (2026-04-07)
+
+- **Server Action 中硬编码英文消息未使用中文** — `"Not authenticated"` / `"Invalid input"` / `"Access denied"` 等，所有已有 Actions 均如此，应整体统一迁移（与 1-5 defer 重复，确认为项目级技术债）
+- **`ProjectLimitExceededError` 构造函数消息为法语** — `types.ts:31`，预存问题（与 1-5 defer 重复，确认为项目级技术债）
+
+## Deferred from: code review of 1-7-项目导入与BMAD上下文关联 (2026-04-07)
+
+- **W1: `github/client.ts` 类型修复使用不精确的内联类型** — `Record<string, string>` 和手写 octokit 类型签名不够精确，应从 `@octokit/plugin-throttling` 导入正确的回调类型。预先存在的类型问题补丁。
+- **W2: `SETTINGS_READ_ERROR` 错误码混入 Story 1.7 diff** — `getWorkspaceSettingsAction` 的错误码从 `SETTINGS_UPDATE_ERROR` 改为 `SETTINGS_READ_ERROR` 是合理修复（读操作不应报"更新失败"），但属于 Story 1.6 修复范围。

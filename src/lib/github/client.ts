@@ -16,7 +16,7 @@ export function createUserOctokit(accessToken: string) {
   return new OctokitWithPlugins({
     auth: accessToken,
     throttle: {
-      onRateLimit: (retryAfter, options, octokit, retryCount) => {
+      onRateLimit: (retryAfter: number, options: Record<string, string>, octokit: { log: { warn: (msg: string) => void; info: (msg: string) => void } }, retryCount: number) => {
         octokit.log.warn(
           `Rate limit hit for ${options.method} ${options.url}`
         );
@@ -26,7 +26,7 @@ export function createUserOctokit(accessToken: string) {
         }
         return false;
       },
-      onSecondaryRateLimit: (retryAfter, options, octokit) => {
+      onSecondaryRateLimit: (retryAfter: number, options: Record<string, string>, octokit: { log: { warn: (msg: string) => void } }) => {
         octokit.log.warn(
           `Secondary rate limit for ${options.method} ${options.url}`
         );

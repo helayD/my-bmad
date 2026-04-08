@@ -68,7 +68,7 @@ export async function getWorkspaceSettingsAction(
     const settings = await getGovernanceSettings(parsed.data);
     return { success: true, data: settings };
   } catch (error: unknown) {
-    return { success: false, error: sanitizeError(error, "SETTINGS_UPDATE_ERROR"), code: "SETTINGS_UPDATE_ERROR" };
+    return { success: false, error: sanitizeError(error, "SETTINGS_READ_ERROR"), code: "SETTINGS_READ_ERROR" };
   }
 }
 
@@ -441,7 +441,7 @@ export async function createTeamWorkspaceAction(
  */
 export async function createProjectAction(
   input: { workspaceId: string; name: string; repoId?: string }
-): Promise<ActionResult<{ project: ProjectListItem }>> {
+): Promise<ActionResult<{ project: ProjectListItem; repoId: string | null }>> {
   const session = await getAuthenticatedSession();
   if (!session) {
     return { success: false, error: "Not authenticated", code: "UNAUTHORIZED" };
@@ -456,6 +456,15 @@ export async function createProjectAction(
     const membership = await getWorkspaceMembership(parsed.data.workspaceId, session.userId);
     if (!membership || !["OWNER", "ADMIN"].includes(membership.role)) {
       return { success: false, error: "Access denied", code: "FORBIDDEN" };
+    }
+
+    if (parsed.data.repoId) {
+      const repo = await prisma.repo.findFirst({
+        where: { id: parsed.data.repoId, userId: session.userId },
+      });
+      if (!repo) {
+        return { success: false, error: sanitizeError(null, "REPO_NOT_FOUND"), code: "REPO_NOT_FOUND" };
+      }
     }
 
     const workspace = await getWorkspaceById(parsed.data.workspaceId);
@@ -481,6 +490,7 @@ export async function createProjectAction(
           status: project.status,
           updatedAt: project.updatedAt,
         },
+        repoId: parsed.data.repoId ?? null,
       },
     };
   } catch (error: unknown) {
@@ -493,8 +503,8 @@ export async function createProjectAction(
     }
     return {
       success: false,
-      error: sanitizeError(error, "WORKSPACE_ERROR"),
-      code: "WORKSPACE_ERROR",
+      error: sanitizeError(error, "PROJECT_IMPORT_ERROR"),
+      code: "PROJECT_IMPORT_ERROR",
     };
   }
 }

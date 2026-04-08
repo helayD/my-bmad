@@ -71,9 +71,10 @@ export default async function WorkspacePage({ params }: WorkspacePageProps) {
               </Link>
             </Button>
           )}
-          {isTeam && canManage && (
+          {canManage && (
             <CreateProjectDialog
               workspaceId={workspace.id}
+              workspaceSlug={slug}
               trigger={
                 <Button>
                   <Plus className="mr-1 h-4 w-4" />

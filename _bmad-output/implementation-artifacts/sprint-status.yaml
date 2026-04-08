@@ -17,7 +17,7 @@
 # - Dev 将 Story 移到 review，然后运行 code-review（建议换 LLM 以获得新视角）
 
 generated: "2026-04-04T22:05:00+08:00"
-last_updated: "2026-04-07T18:10:00+08:00"
+last_updated: "2026-04-07T19:55:00+08:00"
 project: my-bmad
 project_key: NOKEY
 tracking_system: file-system
@@ -31,8 +31,8 @@ development_status:
   1-3-团队工作空间创建与项目上限治理: done
   1-4-团队成员邀请与移除: done
   1-5-角色与权限模型: done
-  1-6-团队级执行与治理策略配置: review
-  1-7-项目导入与BMAD上下文关联: backlog
+  1-6-团队级执行与治理策略配置: done
+  1-7-项目导入与BMAD上下文关联: done
   1-8-授权范围内任务可见性与数据隔离: backlog
   1-9-多语言一致性规范: review
   epic-1-回顾: optional

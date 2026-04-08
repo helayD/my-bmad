@@ -169,6 +169,19 @@ export const getWorkspaceMembers = cache(
 );
 
 /**
+ * Get a project by its slug within a workspace. Cached per request via React cache().
+ * Returns the project with its associated repo, or null if not found.
+ */
+export const getProjectBySlug = cache(
+  async (workspaceId: string, projectSlug: string) => {
+    return prisma.project.findFirst({
+      where: { workspaceId, slug: projectSlug },
+      include: { repo: true },
+    });
+  }
+);
+
+/**
  * Get all PENDING invitations for a workspace. Cached per request via React cache().
  * Returns invitations sorted by createdAt descending.
  */

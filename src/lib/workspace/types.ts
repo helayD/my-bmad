@@ -28,7 +28,7 @@ export class ProjectLimitExceededError extends Error {
 
   constructor(currentCount: number, limit: number) {
     super(
-      `Le nombre maximum de projets actifs (${limit}) a été atteint. Projets actifs actuels : ${currentCount}.`
+      `活跃项目数已达上限（${limit}），当前活跃项目数：${currentCount}。`
     );
     this.name = "ProjectLimitExceededError";
     this.currentCount = currentCount;
