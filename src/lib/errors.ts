@@ -24,6 +24,21 @@ const ERROR_MESSAGES: Record<string, string> = {
   TEAM_WORKSPACE_REQUIRED: "执行策略配置仅适用于团队工作空间。",
   PROJECT_IMPORT_ERROR: "项目导入失败，请稍后重试。",
   REPO_NOT_FOUND: "找不到指定的仓库记录。",
+  WORKSPACE_ACCESS_DENIED: "您没有访问此工作空间的权限。",
+  PROJECT_ACCESS_DENIED: "您没有访问此项目的权限。",
+  INSUFFICIENT_PERMISSION: "您的角色权限不足，无法执行此操作。",
+  VALIDATION_ERROR: "输入参数无效。",
+  UNAUTHORIZED: "未登录，请先登录。",
+  TOKEN_MISSING: "未找到 GitHub OAuth 令牌，请重新连接。",
+  ARTIFACT_SCAN_ERROR: "工件扫描失败，请检查仓库连接后重试。",
+  ARTIFACT_SYNC_ERROR: "工件同步失败，请稍后重试。",
+  ARTIFACT_NOT_FOUND: "找不到指定的工件记录。",
+  REPO_NOT_LINKED: "项目未关联仓库，无法执行工件扫描。",
+  TASK_CREATION_ERROR: "任务创建失败，请稍后重试。",
+  TASK_NOT_FOUND: "找不到指定的任务记录。",
+  ARTIFACT_CONTEXT_ERROR: "工件上下文构建失败，请检查工件内容后重试。",
+  ARTIFACT_SOURCE_NOT_FOUND: "找不到指定的来源工件。",
+  ARTIFACT_SOURCE_UNREADABLE: "来源工件无法读取，请检查仓库连接或本地目录配置。",
 };
 
 export function sanitizeError(error: unknown, code: string): string {

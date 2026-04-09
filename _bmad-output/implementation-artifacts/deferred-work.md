@@ -31,3 +31,8 @@
 
 - **W1: `github/client.ts` 类型修复使用不精确的内联类型** — `Record<string, string>` 和手写 octokit 类型签名不够精确，应从 `@octokit/plugin-throttling` 导入正确的回调类型。预先存在的类型问题补丁。
 - **W2: `SETTINGS_READ_ERROR` 错误码混入 Story 1.7 diff** — `getWorkspaceSettingsAction` 的错误码从 `SETTINGS_UPDATE_ERROR` 改为 `SETTINGS_READ_ERROR` 是合理修复（读操作不应报"更新失败"），但属于 Story 1.6 修复范围。
+
+## Deferred from: code review of 1-8-授权范围内任务可见性与数据隔离 (2026-04-08)
+
+- **#5 `PERMISSIONS` 与 `ROLE_PERMISSIONS` 双源冗余** — `permissions.ts` 中 `PERMISSIONS` 常量（字符串数组）和 `ROLE_PERMISSIONS`（布尔映射）表达相同的权限矩阵。长期应统一为单一数据源，消除不一致风险。
+- **#6 `scopedProjectQuery` / `getAccessibleWorkspaceIds` 无调用方** — `data-guard.ts` 中两个函数当前无实际调用方，按 Spec 设计为后续 Epic 预留。Epic 2 实现时需评估是否仍适用或需调整。

@@ -18,6 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { updateWorkspaceSettingsAction } from "@/actions/workspace-actions";
@@ -29,54 +30,23 @@ interface GovernanceSettingsFormProps {
   defaultValues: WorkspaceGovernanceSettingsInput;
 }
 
-function Switch({
-  checked,
-  onCheckedChange,
-  disabled,
-  id,
-}: {
-  checked: boolean;
-  onCheckedChange: (v: boolean) => void;
-  disabled?: boolean;
-  id?: string;
-}) {
-  return (
-    <button
-      id={id}
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      disabled={disabled}
-      onClick={() => onCheckedChange(!checked)}
-      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${
-        checked ? "bg-primary" : "bg-input"
-      }`}
-    >
-      <span
-        className={`inline-block h-4 w-4 rounded-full bg-background shadow-lg transition-transform ${
-          checked ? "translate-x-6" : "translate-x-1"
-        }`}
-      />
-    </button>
-  );
-}
+type HighRiskChangeKey = "disableAutoRecovery" | "enableApproval";
 
-type HighRiskChange = "disableAutoRecovery" | "enableApproval" | null;
-
-function getHighRiskChange(
+function getHighRiskChanges(
   current: WorkspaceGovernanceSettingsInput,
   prev: WorkspaceGovernanceSettingsInput
-): HighRiskChange {
+): HighRiskChangeKey[] {
+  const risks: HighRiskChangeKey[] = [];
   if (prev.autoRecoveryEnabled && !current.autoRecoveryEnabled) {
-    return "disableAutoRecovery";
+    risks.push("disableAutoRecovery");
   }
   if (!prev.requireApprovalBeforeExecution && current.requireApprovalBeforeExecution) {
-    return "enableApproval";
+    risks.push("enableApproval");
   }
-  return null;
+  return risks;
 }
 
-const HIGH_RISK_MESSAGES: Record<NonNullable<HighRiskChange>, { title: string; description: string }> = {
+const HIGH_RISK_MESSAGES: Record<HighRiskChangeKey, { title: string; description: string }> = {
   disableAutoRecovery: {
     title: "关闭自动恢复",
     description:
@@ -97,7 +67,7 @@ export function GovernanceSettingsForm({
   const [error, setError] = useState<string | null>(null);
   const [values, setValues] = useState<WorkspaceGovernanceSettingsInput>(defaultValues);
   const [pendingValues, setPendingValues] = useState<WorkspaceGovernanceSettingsInput | null>(null);
-  const [highRiskChange, setHighRiskChange] = useState<HighRiskChange>(null);
+  const [highRiskChanges, setHighRiskChanges] = useState<HighRiskChangeKey[]>([]);
 
   useEffect(() => {
     setValues(defaultValues);
@@ -105,9 +75,9 @@ export function GovernanceSettingsForm({
 
   function handleSubmit(confirmed: boolean = false) {
     if (!confirmed) {
-      const risk = getHighRiskChange(values, defaultValues);
-      if (risk) {
-        setHighRiskChange(risk);
+      const risks = getHighRiskChanges(values, defaultValues);
+      if (risks.length > 0) {
+        setHighRiskChanges(risks);
         setPendingValues(values);
         return;
       }
@@ -130,12 +100,12 @@ export function GovernanceSettingsForm({
   }
 
   function handleConfirmHighRisk() {
-    setHighRiskChange(null);
+    setHighRiskChanges([]);
     handleSubmit(true);
   }
 
   function handleCancelHighRisk() {
-    setHighRiskChange(null);
+    setHighRiskChanges([]);
     setPendingValues(null);
   }
 
@@ -259,15 +229,21 @@ export function GovernanceSettingsForm({
         </div>
       </div>
 
-      {highRiskChange && (
-        <AlertDialog open={!!highRiskChange} onOpenChange={(v) => { if (!v) handleCancelHighRisk(); }}>
+      {highRiskChanges.length > 0 && (
+        <AlertDialog open={highRiskChanges.length > 0} onOpenChange={(v) => { if (!v) handleCancelHighRisk(); }}>
           <AlertDialogContent>
             <AlertDialogHeader>
               <AlertDialogTitle>
-                {HIGH_RISK_MESSAGES[highRiskChange].title}
+                {highRiskChanges.length === 1
+                  ? HIGH_RISK_MESSAGES[highRiskChanges[0]].title
+                  : "高风险策略变更确认"}
               </AlertDialogTitle>
-              <AlertDialogDescription>
-                {HIGH_RISK_MESSAGES[highRiskChange].description}
+              <AlertDialogDescription asChild>
+                <div className="space-y-2">
+                  {highRiskChanges.map((key) => (
+                    <p key={key}>{HIGH_RISK_MESSAGES[key].description}</p>
+                  ))}
+                </div>
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>

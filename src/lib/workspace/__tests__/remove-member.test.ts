@@ -86,14 +86,14 @@ describe("removeMember (integration)", () => {
     expect(deleted).toBeNull();
   });
 
-  it("should throw CannotRemoveSoleOwnerError when removing the only OWNER", async () => {
+  it("should throw SelfRemoveNotAllowedError when actor tries to remove themselves as the only OWNER", async () => {
     await expect(
       removeMember({
         workspaceId: workspace.id,
         membershipId: ownerMembership.id,
         actorUserId: ownerUser.id,
       })
-    ).rejects.toThrow(CannotRemoveSoleOwnerError);
+    ).rejects.toThrow(SelfRemoveNotAllowedError);
   });
 
   it("should allow removing an OWNER when another OWNER exists", async () => {

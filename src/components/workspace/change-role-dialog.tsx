@@ -1,6 +1,6 @@
 "use client";
 
-import { useTransition, useState, useEffect } from "react";
+import { useTransition, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -46,12 +46,21 @@ export function ChangeRoleDialog({
   const [error, setError] = useState<string | null>(null);
   const [selectedRole, setSelectedRole] = useState(currentRole);
 
-  useEffect(() => {
+  const availableRoles = actorRole === "OWNER" ? ALL_ROLES : NON_OWNER_ROLES;
+
+  function resetForm() {
     setSelectedRole(currentRole);
     setError(null);
-  }, [currentRole]);
+  }
 
-  const availableRoles = actorRole === "OWNER" ? ALL_ROLES : NON_OWNER_ROLES;
+  function handleOpenChange(nextOpen: boolean) {
+    if (nextOpen) {
+      resetForm();
+      return;
+    }
+
+    onClose();
+  }
 
   function handleSubmit() {
     if (selectedRole === currentRole) {
@@ -75,7 +84,7 @@ export function ChangeRoleDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>更改角色</DialogTitle>
@@ -101,7 +110,7 @@ export function ChangeRoleDialog({
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={isPending}>
+          <Button variant="outline" onClick={() => handleOpenChange(false)} disabled={isPending}>
             取消
           </Button>
           <Button onClick={handleSubmit} disabled={isPending}>

@@ -18,7 +18,11 @@ export async function getGovernanceSettings(
     select: { settings: true },
   });
 
-  const rawSettings = (workspace?.settings ?? null) as Partial<WorkspaceGovernanceSettingsInput> | null;
+  if (!workspace) {
+    throw new Error("找不到指定的工作空间。");
+  }
+
+  const rawSettings = (workspace.settings ?? null) as Partial<WorkspaceGovernanceSettingsInput> | null;
   return {
     ...DEFAULT_GOVERNANCE_SETTINGS,
     ...(rawSettings ?? {}),
@@ -37,7 +41,7 @@ export async function updateWorkspaceSettings(params: {
   });
 
   if (!workspace) {
-    throw new Error("Workspace not found");
+    throw new Error("找不到指定的工作空间。");
   }
 
   if (workspace.type !== "TEAM") {

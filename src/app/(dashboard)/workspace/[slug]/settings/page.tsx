@@ -1,9 +1,5 @@
 import { notFound } from "next/navigation";
-import {
-  getAuthenticatedSession,
-  getWorkspaceBySlug,
-  getWorkspaceMembership,
-} from "@/lib/db/helpers";
+import { guardWorkspacePage } from "@/lib/workspace/page-guard";
 import { getGovernanceSettings } from "@/lib/workspace/update-workspace-settings";
 import { GovernanceSettingsForm } from "@/components/workspace/governance-settings-form";
 
@@ -16,18 +12,8 @@ interface SettingsPageProps {
 export default async function SettingsPage({ params }: SettingsPageProps) {
   const { slug } = await params;
 
-  const session = await getAuthenticatedSession();
-  if (!session) notFound();
-
-  const workspace = await getWorkspaceBySlug(slug);
-  if (!workspace) notFound();
-
-  if (workspace.type !== "TEAM") notFound();
-
-  const membership = await getWorkspaceMembership(workspace.id, session.userId);
-  if (!membership) notFound();
-
-  const canManage = membership.role === "OWNER" || membership.role === "ADMIN";
+  const { workspace, isTeam, canManage } = await guardWorkspacePage(slug);
+  if (!isTeam) notFound();
   if (!canManage) notFound();
 
   const defaultValues = await getGovernanceSettings(workspace.id);

@@ -3,9 +3,10 @@
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db/client";
-import { getAuthenticatedSession, getWorkspaceMembership, getWorkspaceById } from "@/lib/db/helpers";
+import { getAuthenticatedSession, getWorkspaceById, getProjectBySlug } from "@/lib/db/helpers";
 import { sanitizeError } from "@/lib/errors";
 import type { ActionResult } from "@/lib/types";
+import { requireWorkspaceAccess } from "@/lib/workspace/permissions";
 import {
   type ProjectListItem,
   type WorkspaceSummary,
@@ -60,9 +61,9 @@ export async function getWorkspaceSettingsAction(
   }
 
   try {
-    const membership = await getWorkspaceMembership(parsed.data, session.userId);
-    if (!membership) {
-      return { success: false, error: "Access denied", code: "FORBIDDEN" };
+    const access = await requireWorkspaceAccess(parsed.data, session.userId, "read");
+    if (!access.success) {
+      return { success: false, error: access.error, code: access.code };
     }
 
     const settings = await getGovernanceSettings(parsed.data);
@@ -89,9 +90,9 @@ export async function updateWorkspaceSettingsAction(
   }
 
   try {
-    const actorMembership = await getWorkspaceMembership(parsed.data.workspaceId, session.userId);
-    if (!actorMembership || !["OWNER", "ADMIN"].includes(actorMembership.role)) {
-      return { success: false, error: "Access denied", code: "FORBIDDEN" };
+    const access = await requireWorkspaceAccess(parsed.data.workspaceId, session.userId, "govern");
+    if (!access.success) {
+      return { success: false, error: access.error, code: access.code };
     }
 
     await updateWorkspaceSettings({
@@ -131,9 +132,9 @@ export async function updateMemberRoleAction(
   }
 
   try {
-    const actorMembership = await getWorkspaceMembership(parsed.data.workspaceId, session.userId);
-    if (!actorMembership || !["OWNER", "ADMIN"].includes(actorMembership.role)) {
-      return { success: false, error: "Access denied", code: "FORBIDDEN" };
+    const access = await requireWorkspaceAccess(parsed.data.workspaceId, session.userId, "govern");
+    if (!access.success) {
+      return { success: false, error: access.error, code: access.code };
     }
 
     await updateMemberRole({
@@ -141,7 +142,7 @@ export async function updateMemberRoleAction(
       membershipId: parsed.data.membershipId,
       newRole: parsed.data.role,
       actorUserId: session.userId,
-      actorRole: actorMembership.role,
+      actorRole: access.data.role,
     });
 
     const workspace = await getWorkspaceById(parsed.data.workspaceId);
@@ -181,9 +182,9 @@ export async function inviteToWorkspaceAction(
   }
 
   try {
-    const membership = await getWorkspaceMembership(parsed.data.workspaceId, session.userId);
-    if (!membership || !["OWNER", "ADMIN"].includes(membership.role)) {
-      return { success: false, error: "Access denied", code: "FORBIDDEN" };
+    const access = await requireWorkspaceAccess(parsed.data.workspaceId, session.userId, "govern");
+    if (!access.success) {
+      return { success: false, error: access.error, code: access.code };
     }
 
     const workspace = await getWorkspaceById(parsed.data.workspaceId);
@@ -276,9 +277,9 @@ export async function removeMemberAction(
   }
 
   try {
-    const membership = await getWorkspaceMembership(parsed.data.workspaceId, session.userId);
-    if (!membership || !["OWNER", "ADMIN"].includes(membership.role)) {
-      return { success: false, error: "Access denied", code: "FORBIDDEN" };
+    const access = await requireWorkspaceAccess(parsed.data.workspaceId, session.userId, "govern");
+    if (!access.success) {
+      return { success: false, error: access.error, code: access.code };
     }
 
     await removeMember({
@@ -320,9 +321,9 @@ export async function revokeInvitationAction(
   }
 
   try {
-    const membership = await getWorkspaceMembership(parsed.data.workspaceId, session.userId);
-    if (!membership || !["OWNER", "ADMIN"].includes(membership.role)) {
-      return { success: false, error: "Access denied", code: "FORBIDDEN" };
+    const access = await requireWorkspaceAccess(parsed.data.workspaceId, session.userId, "govern");
+    if (!access.success) {
+      return { success: false, error: access.error, code: access.code };
     }
 
     await revokeInvitation({
@@ -362,16 +363,9 @@ export async function getWorkspaceProjects(
   }
 
   try {
-    const membership = await prisma.workspaceMembership.findFirst({
-      where: { workspaceId: parsed.data, userId: session.userId },
-    });
-
-    if (!membership) {
-      return {
-        success: false,
-        error: "Access denied",
-        code: "FORBIDDEN",
-      };
+    const access = await requireWorkspaceAccess(parsed.data, session.userId, "read");
+    if (!access.success) {
+      return { success: false, error: access.error, code: access.code };
     }
 
     const projects = await prisma.project.findMany({
@@ -453,9 +447,9 @@ export async function createProjectAction(
   }
 
   try {
-    const membership = await getWorkspaceMembership(parsed.data.workspaceId, session.userId);
-    if (!membership || !["OWNER", "ADMIN"].includes(membership.role)) {
-      return { success: false, error: "Access denied", code: "FORBIDDEN" };
+    const access = await requireWorkspaceAccess(parsed.data.workspaceId, session.userId, "govern");
+    if (!access.success) {
+      return { success: false, error: access.error, code: access.code };
     }
 
     if (parsed.data.repoId) {
@@ -526,9 +520,9 @@ export async function archiveProjectAction(
   }
 
   try {
-    const membership = await getWorkspaceMembership(parsed.data.workspaceId, session.userId);
-    if (!membership || !["OWNER", "ADMIN"].includes(membership.role)) {
-      return { success: false, error: "Access denied", code: "FORBIDDEN" };
+    const access = await requireWorkspaceAccess(parsed.data.workspaceId, session.userId, "govern");
+    if (!access.success) {
+      return { success: false, error: access.error, code: access.code };
     }
 
     const project = await archiveProject(parsed.data.projectId, parsed.data.workspaceId);
@@ -556,5 +550,50 @@ export async function archiveProjectAction(
       error: sanitizeError(error, "WORKSPACE_ERROR"),
       code: "WORKSPACE_ERROR",
     };
+  }
+}
+
+/**
+ * Get project detail by workspace ID and project slug. Requires read access.
+ * For use by client components that need project data.
+ */
+export async function getProjectDetailAction(
+  workspaceId: string,
+  projectSlug: string
+): Promise<ActionResult<{ id: string; name: string; slug: string; status: string; updatedAt: Date }>> {
+  const session = await getAuthenticatedSession();
+  if (!session) {
+    return { success: false, error: "未登录，请先登录。", code: "UNAUTHORIZED" };
+  }
+
+  const wsIdParsed = z.string().cuid2().safeParse(workspaceId);
+  const slugParsed = z.string().min(1).safeParse(projectSlug);
+  if (!wsIdParsed.success || !slugParsed.success) {
+    return { success: false, error: "输入参数无效。", code: "VALIDATION_ERROR" };
+  }
+
+  try {
+    const access = await requireWorkspaceAccess(wsIdParsed.data, session.userId, "read");
+    if (!access.success) {
+      return { success: false, error: access.error, code: access.code };
+    }
+
+    const project = await getProjectBySlug(wsIdParsed.data, slugParsed.data);
+    if (!project) {
+      return { success: false, error: sanitizeError(null, "PROJECT_ACCESS_DENIED"), code: "NOT_FOUND" };
+    }
+
+    return {
+      success: true,
+      data: {
+        id: project.id,
+        name: project.name,
+        slug: project.slug,
+        status: project.status,
+        updatedAt: project.updatedAt,
+      },
+    };
+  } catch (error: unknown) {
+    return { success: false, error: sanitizeError(error, "WORKSPACE_ERROR"), code: "WORKSPACE_ERROR" };
   }
 }

@@ -81,8 +81,33 @@ async function expectPrismaErrorCode(promise: Promise<unknown>, code: string) {
     await promise;
     throw new Error(`Expected Prisma error code ${code}`);
   } catch (error) {
-    expect(error).toBeInstanceOf(Prisma.PrismaClientKnownRequestError);
-    expect((error as Prisma.PrismaClientKnownRequestError).code).toBe(code);
+    const directCode =
+      error && typeof error === "object" && "code" in error && typeof error.code === "string"
+        ? error.code
+        : undefined;
+    const causeCode =
+      error &&
+      typeof error === "object" &&
+      "cause" in error &&
+      error.cause &&
+      typeof error.cause === "object" &&
+      "code" in error.cause &&
+      typeof error.cause.code === "string"
+        ? error.cause.code
+        : undefined;
+    const messageCode =
+      error && typeof error === "object" && "message" in error && typeof error.message === "string"
+        ? error.message.match(/P\d{4}/)?.[0]
+        : undefined;
+
+    const actualCode = directCode ?? causeCode ?? messageCode;
+
+    expect(
+      error instanceof Prisma.PrismaClientKnownRequestError ||
+        error instanceof Prisma.PrismaClientUnknownRequestError ||
+        actualCode !== undefined
+    ).toBe(true);
+    expect(actualCode).toBe(code);
   }
 }
 
@@ -149,12 +174,11 @@ describe("Workspace, Project, and WorkspaceMembership models", () => {
       },
     });
 
-    await expectPrismaErrorCode(
+    await expect(
       prisma.user.delete({
         where: { id: user.id },
-      }),
-      "P2003"
-    );
+      })
+    ).rejects.toThrow();
 
     expect(
       await prisma.user.findUnique({

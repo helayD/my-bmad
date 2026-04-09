@@ -15,6 +15,11 @@ const eslintConfig = defineConfig([
     // Third-party vendored components
     "src/components/animate-ui/**",
     "src/components/reui/**",
+    ".agents/**",
+    ".claude/**",
+    ".windsurf/**",
+    "_bmad/**",
+    "_bmad-output/**",
   ]),
 ]);
 

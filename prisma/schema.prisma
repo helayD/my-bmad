@@ -8,6 +8,13 @@ generator client {
   output   = "../src/generated/prisma"
 }
 
+enum ArtifactType {
+  PRD
+  EPIC
+  STORY
+  TASK
+}
+
 enum WorkspaceType {
   PERSONAL
   TEAM
@@ -34,6 +41,7 @@ model User {
   sessions      Session[]
   accounts      Account[]
   repos         Repo[]
+  createdTasks  Task[]              @relation("TaskCreator")
   ownedWorkspaces       Workspace[]           @relation("WorkspaceOwner")
   workspaceMemberships  WorkspaceMembership[]
   sentInvitations       WorkspaceInvitation[]  @relation("InvitedByUser")
@@ -99,6 +107,7 @@ model Workspace {
 
   owner      User                  @relation("WorkspaceOwner", fields: [ownerId], references: [id], onDelete: Restrict)
   projects   Project[]
+  tasks      Task[]
   memberships  WorkspaceMembership[]
   invitations  WorkspaceInvitation[]
 
@@ -117,8 +126,10 @@ model Project {
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
 
-  workspace   Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  repo        Repo?       @relation(fields: [repoId], references: [id], onDelete: SetNull)
+  workspace   Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  repo        Repo?          @relation(fields: [repoId], references: [id], onDelete: SetNull)
+  artifacts   BmadArtifact[]
+  tasks       Task[]
 
   @@unique([workspaceId, slug])
   @@index([workspaceId])
@@ -162,6 +173,61 @@ model WorkspaceInvitation {
   @@index([workspaceId, email])
   @@index([email])
   @@map("workspace_invitations")
+}
+
+model BmadArtifact {
+  id        String       @id @default(cuid())
+  projectId String
+  type      ArtifactType
+  name      String
+  filePath  String
+  parentId  String?
+  metadata  Json?
+  status    String       @default("active")
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  
+  project  Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  parent   BmadArtifact?  @relation("ArtifactHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children BmadArtifact[] @relation("ArtifactHierarchy")
+  originTasks Task[]      @relation("TaskSourceArtifact")
+
+  @@unique([projectId, filePath])
+  @@index([projectId])
+  @@index([parentId])
+  @@index([projectId, type])
+  @@map("bmad_artifacts")
+}
+
+model Task {
+  id               String        @id @default(cuid())
+  workspaceId      String
+  projectId        String
+  sourceArtifactId String?
+  title            String
+  goal             String
+  summary          String
+  priority         String
+  intent           String
+  status           String        @default("pending")
+  currentStage     String
+  nextStep         String
+  metadata         Json?
+  createdByUserId  String
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  workspace        Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  project          Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  sourceArtifact   BmadArtifact? @relation("TaskSourceArtifact", fields: [sourceArtifactId], references: [id], onDelete: SetNull)
+  createdByUser    User          @relation("TaskCreator", fields: [createdByUserId], references: [id], onDelete: Restrict)
+
+  @@index([workspaceId])
+  @@index([projectId])
+  @@index([sourceArtifactId])
+  @@index([createdByUserId])
+  @@index([projectId, status])
+  @@map("tasks")
 }
 
 model Repo {

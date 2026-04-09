@@ -17,7 +17,7 @@
 # - Dev 将 Story 移到 review，然后运行 code-review（建议换 LLM 以获得新视角）
 
 generated: "2026-04-04T22:05:00+08:00"
-last_updated: "2026-04-07T19:55:00+08:00"
+last_updated: "2026-04-09T10:42:00+08:00"
 project: my-bmad
 project_key: NOKEY
 tracking_system: file-system
@@ -33,15 +33,15 @@ development_status:
   1-5-角色与权限模型: done
   1-6-团队级执行与治理策略配置: done
   1-7-项目导入与BMAD上下文关联: done
-  1-8-授权范围内任务可见性与数据隔离: backlog
+  1-8-授权范围内任务可见性与数据隔离: done
   1-9-多语言一致性规范: review
   epic-1-回顾: optional
 
   # ── Epic 2: BMAD 工件上下文、映射与执行入口 ──
-  epic-2: backlog
-  2-1-BMAD工件层级模型与解析引擎: backlog
-  2-2-从BMAD工件发起执行任务: backlog
-  2-3-执行任务与来源工件的追踪映射: backlog
+  epic-2: in-progress
+  2-1-BMAD工件层级模型与解析引擎: in-progress
+  2-2-从BMAD工件发起执行任务: review
+  2-3-执行任务与来源工件的追踪映射: ready-for-dev
   2-4-查看工件关联的执行历史状态与产物: backlog
   2-5-执行结果回写到BMAD工件链路: backlog
   epic-2-回顾: optional

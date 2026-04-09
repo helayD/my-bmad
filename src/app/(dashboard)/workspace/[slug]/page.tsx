@@ -1,12 +1,7 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
 import { Plus, Users } from "lucide-react";
-import {
-  getAuthenticatedSession,
-  getWorkspaceBySlug,
-  getWorkspaceMembership,
-  getActiveProjectCount,
-} from "@/lib/db/helpers";
+import { getActiveProjectCount } from "@/lib/db/helpers";
+import { guardWorkspacePage } from "@/lib/workspace/page-guard";
 import { TEAM_WORKSPACE_ACTIVE_PROJECT_LIMIT } from "@/lib/workspace/project-limit";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -22,17 +17,7 @@ interface WorkspacePageProps {
 export default async function WorkspacePage({ params }: WorkspacePageProps) {
   const { slug } = await params;
 
-  const session = await getAuthenticatedSession();
-  if (!session) notFound();
-
-  const workspace = await getWorkspaceBySlug(slug);
-  if (!workspace) notFound();
-
-  const membership = await getWorkspaceMembership(workspace.id, session.userId);
-  if (!membership) notFound();
-
-  const isTeam = workspace.type === "TEAM";
-  const canManage = ["OWNER", "ADMIN"].includes(membership.role);
+  const { workspace, isTeam, canManage } = await guardWorkspacePage(slug);
   const activeProjectCount = isTeam ? await getActiveProjectCount(workspace.id) : 0;
 
   const projects = workspace.projects.map((p) => ({

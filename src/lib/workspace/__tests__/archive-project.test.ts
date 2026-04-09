@@ -108,13 +108,13 @@ describe("archiveProject (integration)", () => {
 
     await expect(
       archiveProject(project.id, otherWorkspaceId)
-    ).rejects.toThrow("Le projet est introuvable dans cet espace de travail.");
+    ).rejects.toThrow("在此工作空间中找不到该项目。");
   });
 
   it("should reject archiving an already archived project", async () => {
     // activeProjectId was already archived in the first test
     await expect(
       archiveProject(activeProjectId, workspaceId)
-    ).rejects.toThrow("Seuls les projets actifs peuvent être archivés.");
+    ).rejects.toThrow("只有活跃状态的项目可以被归档。");
   });
 });

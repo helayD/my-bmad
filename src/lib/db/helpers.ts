@@ -182,6 +182,116 @@ export const getProjectBySlug = cache(
 );
 
 /**
+ * Get all active BmadArtifacts for a project. Cached per request via React cache().
+ */
+export const getProjectArtifacts = cache(
+  async (projectId: string) => {
+    return prisma.bmadArtifact.findMany({
+      where: { projectId, status: "active" },
+      orderBy: [{ type: "asc" }, { name: "asc" }],
+    });
+  }
+);
+
+/**
+ * Get a single BmadArtifact by ID. Cached per request via React cache().
+ */
+export const getArtifactById = cache(
+  async (artifactId: string) => {
+    return prisma.bmadArtifact.findUnique({
+      where: { id: artifactId },
+    });
+  }
+);
+
+/**
+ * Get a single task by ID with related project, workspace, creator, and source artifact hierarchy.
+ * Cached per request via React cache().
+ */
+export const getTaskById = cache(
+  async (taskId: string) => {
+    return prisma.task.findUnique({
+      where: { id: taskId },
+      include: {
+        workspace: {
+          select: { id: true, slug: true, name: true },
+        },
+        project: {
+          select: { id: true, workspaceId: true, slug: true, name: true },
+        },
+        createdByUser: {
+          select: { id: true, name: true, email: true },
+        },
+        sourceArtifact: {
+          include: {
+            parent: {
+              include: {
+                parent: {
+                  include: {
+                    parent: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+  }
+);
+
+export const getTasksBySourceArtifactId = cache(
+  async (projectId: string, sourceArtifactId: string, status?: string) => {
+    return prisma.task.findMany({
+      where: {
+        projectId,
+        sourceArtifactId,
+        ...(status ? { status } : {}),
+      },
+      select: {
+        id: true,
+        title: true,
+        status: true,
+        currentStage: true,
+        nextStep: true,
+        createdAt: true,
+        metadata: true,
+        sourceArtifact: {
+          select: {
+            id: true,
+            type: true,
+            name: true,
+            filePath: true,
+            parent: {
+              select: {
+                id: true,
+                type: true,
+                name: true,
+                parent: {
+                  select: {
+                    id: true,
+                    type: true,
+                    name: true,
+                    parent: {
+                      select: {
+                        id: true,
+                        type: true,
+                        name: true,
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+  }
+);
+
+/**
  * Get all PENDING invitations for a workspace. Cached per request via React cache().
  * Returns invitations sorted by createdAt descending.
  */

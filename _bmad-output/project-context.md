@@ -38,6 +38,8 @@ _此文件记录 AI 代理在本项目中实现代码时必须遵循的关键规
 - 导入路径优先使用 `@/` 别名，而不是深层相对路径。
 - 共享领域类型放在 `src/lib/types.ts` 或对应 `lib` 子模块，不要在多个 action 或组件里重复声明。
 - 涉及数据库、GitHub API、文件系统扫描的逻辑统一使用 `async/await`，不要混杂 `.then()` 风格。
+- 所有面向用户的错误消息、UI 提示文本统一使用**中文**；`src/lib/errors.ts` 中的 `ERROR_MESSAGES` value 必须为中文，不接受法语或英语。
+- 角色名（OWNER/ADMIN/MEMBER 等）、技术标识符（token、slug）等专有术语保持英文不翻译。
 
 ### 框架特定规则
 

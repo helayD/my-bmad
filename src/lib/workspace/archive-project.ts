@@ -14,11 +14,11 @@ export async function archiveProject(
   });
 
   if (!project) {
-    throw new Error("Le projet est introuvable dans cet espace de travail.");
+    throw new Error("在此工作空间中找不到该项目。");
   }
 
   if (project.status !== "active") {
-    throw new Error("Seuls les projets actifs peuvent être archivés.");
+    throw new Error("只有活跃状态的项目可以被归档。");
   }
 
   return prisma.project.update({

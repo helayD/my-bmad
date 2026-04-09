@@ -1,12 +1,10 @@
 import { notFound } from "next/navigation";
 import { Plus } from "lucide-react";
 import {
-  getAuthenticatedSession,
-  getWorkspaceBySlug,
-  getWorkspaceMembership,
   getWorkspaceMembers,
   getWorkspaceInvitations,
 } from "@/lib/db/helpers";
+import { guardWorkspacePage } from "@/lib/workspace/page-guard";
 import { Button } from "@/components/ui/button";
 import { MemberList } from "@/components/workspace/member-list";
 import { InvitationList } from "@/components/workspace/invitation-list";
@@ -19,18 +17,8 @@ interface MembersPageProps {
 export default async function MembersPage({ params }: MembersPageProps) {
   const { slug } = await params;
 
-  const session = await getAuthenticatedSession();
-  if (!session) notFound();
-
-  const workspace = await getWorkspaceBySlug(slug);
-  if (!workspace) notFound();
-
-  if (workspace.type !== "TEAM") notFound();
-
-  const membership = await getWorkspaceMembership(workspace.id, session.userId);
-  if (!membership) notFound();
-
-  const canManage = membership.role === "OWNER" || membership.role === "ADMIN";
+  const { session, workspace, membership, isTeam, canManage } = await guardWorkspacePage(slug);
+  if (!isTeam) notFound();
 
   const [members, invitations] = await Promise.all([
     getWorkspaceMembers(workspace.id),

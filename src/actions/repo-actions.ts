@@ -502,6 +502,11 @@ const fetchBmadFilesSchema = z.object({
 /**
  * Fetch the BMAD file tree for a repo.
  * Routes by sourceType for GitHub vs Local.
+ *
+ * Design decision (Story 1.8): Repo ownership is bound to userId, not workspaceId.
+ * This action queries by owner/name + userId (not workspace-scoped).
+ * Cross-workspace data isolation is enforced at the page level via workspace
+ * membership checks before this action is called.
  */
 export async function fetchBmadFiles(input: {
   owner: string;
