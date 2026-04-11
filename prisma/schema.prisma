@@ -42,6 +42,7 @@ model User {
   accounts      Account[]
   repos         Repo[]
   createdTasks  Task[]              @relation("TaskCreator")
+  createdPlanningRequests PlanningRequest[] @relation("PlanningRequestCreator")
   ownedWorkspaces       Workspace[]           @relation("WorkspaceOwner")
   workspaceMemberships  WorkspaceMembership[]
   sentInvitations       WorkspaceInvitation[]  @relation("InvitedByUser")
@@ -108,6 +109,9 @@ model Workspace {
   owner      User                  @relation("WorkspaceOwner", fields: [ownerId], references: [id], onDelete: Restrict)
   projects   Project[]
   tasks      Task[]
+  planningRequests PlanningRequest[]
+  writebacks Writeback[]
+  auditEvents AuditEvent[]
   memberships  WorkspaceMembership[]
   invitations  WorkspaceInvitation[]
 
@@ -130,6 +134,9 @@ model Project {
   repo        Repo?          @relation(fields: [repoId], references: [id], onDelete: SetNull)
   artifacts   BmadArtifact[]
   tasks       Task[]
+  planningRequests PlanningRequest[]
+  writebacks  Writeback[]
+  auditEvents AuditEvent[]
 
   @@unique([workspaceId, slug])
   @@index([workspaceId])
@@ -176,26 +183,36 @@ model WorkspaceInvitation {
 }
 
 model BmadArtifact {
-  id        String       @id @default(cuid())
-  projectId String
-  type      ArtifactType
-  name      String
-  filePath  String
-  parentId  String?
-  metadata  Json?
-  status    String       @default("active")
-  createdAt DateTime     @default(now())
-  updatedAt DateTime     @updatedAt
+  id                     String       @id @default(cuid())
+  projectId              String
+  type                   ArtifactType
+  name                   String
+  filePath               String
+  parentId               String?
+  metadata               Json?
+  status                 String       @default("active")
+  executionStatus        String?
+  latestWritebackAt      DateTime?
+  latestWritebackTaskId  String?
+  latestWritebackOutcome String?
+  latestWritebackSummary String?
+  latestWritebackArtifacts Json?
+  latestRecoveryHint     String?
+  createdAt              DateTime     @default(now())
+  updatedAt              DateTime     @updatedAt
   
-  project  Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  parent   BmadArtifact?  @relation("ArtifactHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
-  children BmadArtifact[] @relation("ArtifactHierarchy")
-  originTasks Task[]      @relation("TaskSourceArtifact")
+  project     Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  parent      BmadArtifact?  @relation("ArtifactHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children    BmadArtifact[] @relation("ArtifactHierarchy")
+  originTasks Task[]         @relation("TaskSourceArtifact")
+  writebacks  Writeback[]
+  auditEvents AuditEvent[]
 
   @@unique([projectId, filePath])
   @@index([projectId])
   @@index([parentId])
   @@index([projectId, type])
+  @@index([projectId, executionStatus])
   @@map("bmad_artifacts")
 }
 
@@ -221,6 +238,8 @@ model Task {
   project          Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
   sourceArtifact   BmadArtifact? @relation("TaskSourceArtifact", fields: [sourceArtifactId], references: [id], onDelete: SetNull)
   createdByUser    User          @relation("TaskCreator", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  writebacks       Writeback[]
+  auditEvents      AuditEvent[]
 
   @@index([workspaceId])
   @@index([projectId])
@@ -228,6 +247,84 @@ model Task {
   @@index([createdByUserId])
   @@index([projectId, status])
   @@map("tasks")
+}
+
+model PlanningRequest {
+  id              String    @id @default(cuid())
+  workspaceId     String
+  projectId       String
+  createdByUserId String
+  rawGoal         String
+  status          String    @default("analyzing")
+  progressPercent Int       @default(10)
+  nextStep        String
+  metadata        Json?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  workspace       Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  project         Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdByUser   User       @relation("PlanningRequestCreator", fields: [createdByUserId], references: [id], onDelete: Restrict)
+
+  @@index([workspaceId, createdAt])
+  @@index([projectId, createdAt])
+  @@index([projectId, status, createdAt])
+  @@index([createdByUserId, createdAt])
+  @@map("planning_requests")
+}
+
+model Writeback {
+  id             String       @id @default(cuid())
+  workspaceId     String
+  projectId       String
+  taskId          String
+  artifactId      String
+  outcome         String
+  writebackStatus String
+  summary         String
+  errorSummary    String?
+  payload         Json?
+  idempotencyKey  String       @unique
+  occurredAt      DateTime
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  workspace       Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  project         Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  task            Task         @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  artifact        BmadArtifact @relation(fields: [artifactId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@index([projectId])
+  @@index([taskId, occurredAt])
+  @@index([artifactId, occurredAt])
+  @@index([projectId, artifactId, occurredAt])
+  @@map("writebacks")
+}
+
+model AuditEvent {
+  id          String       @id @default(cuid())
+  workspaceId String
+  projectId   String
+  taskId      String?
+  artifactId  String?
+  eventName   String
+  payload     Json?
+  occurredAt  DateTime
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  workspace   Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  project     Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  task        Task?        @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  artifact    BmadArtifact? @relation(fields: [artifactId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, occurredAt])
+  @@index([projectId, occurredAt])
+  @@index([taskId, occurredAt])
+  @@index([artifactId, occurredAt])
+  @@index([projectId, eventName, occurredAt])
+  @@map("audit_events")
 }
 
 model Repo {

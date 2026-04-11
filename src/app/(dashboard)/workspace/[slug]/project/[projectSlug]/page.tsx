@@ -2,11 +2,13 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { getProjectBySlug, getProjectArtifacts } from "@/lib/db/helpers";
+import { getRecentPlanningRequestsByProjectId } from "@/lib/planning/queries";
 import { guardWorkspacePage } from "@/lib/workspace/page-guard";
 import { fetchBmadFiles } from "@/actions/repo-actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatRelativeTime } from "@/lib/utils";
+import { PlanningRequestComposer } from "@/components/planning/planning-request-composer";
 import { ProjectBmadArtifacts } from "@/components/workspace/project-bmad-artifacts";
 import { ProjectNoRepo } from "@/components/workspace/project-no-repo";
 import { ArtifactTree } from "@/components/artifacts/artifact-tree";
@@ -92,6 +94,7 @@ export default async function ProjectPage({ params, searchParams }: ProjectPageP
 
   const project = await getProjectBySlug(workspace.id, projectSlug);
   if (!project) notFound();
+  const planningRequests = await getRecentPlanningRequestsByProjectId(project.id);
 
   let fileTree: FileTreeNode[] | null = null;
   if (project.repo) {
@@ -113,6 +116,15 @@ export default async function ProjectPage({ params, searchParams }: ProjectPageP
     ? project.repo.sourceType === "local"
       ? project.repo.localPath ?? project.repo.displayName
       : `${project.repo.owner}/${project.repo.name}`
+    : null;
+  const artifactTreeSection = project.repo
+    ? await ArtifactTreeSection({
+        projectId: project.id,
+        workspaceId: workspace.id,
+        workspaceSlug: slug,
+        projectSlug,
+        initialSelectedArtifactId: artifactId,
+      })
     : null;
 
   return (
@@ -159,6 +171,13 @@ export default async function ProjectPage({ params, searchParams }: ProjectPageP
         </div>
       </div>
 
+      <PlanningRequestComposer
+        workspaceId={workspace.id}
+        projectId={project.id}
+        initialRequests={planningRequests}
+        hasRepo={Boolean(project.repo)}
+      />
+
       {/* Content */}
       {project.repo ? (
         <>
@@ -179,13 +198,7 @@ export default async function ProjectPage({ params, searchParams }: ProjectPageP
           )}
 
           {/* Structured artifact tree */}
-          <ArtifactTreeSection
-            projectId={project.id}
-            workspaceId={workspace.id}
-            workspaceSlug={slug}
-            projectSlug={projectSlug}
-            initialSelectedArtifactId={artifactId}
-          />
+          {artifactTreeSection}
         </>
       ) : (
         <ProjectNoRepo />

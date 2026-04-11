@@ -36,9 +36,16 @@ const ERROR_MESSAGES: Record<string, string> = {
   REPO_NOT_LINKED: "项目未关联仓库，无法执行工件扫描。",
   TASK_CREATION_ERROR: "任务创建失败，请稍后重试。",
   TASK_NOT_FOUND: "找不到指定的任务记录。",
+  WRITEBACK_ERROR: "执行结果回写失败，请稍后重试。",
+  WRITEBACK_INVALID_STATE: "当前任务状态还不能回写执行结果。",
   ARTIFACT_CONTEXT_ERROR: "工件上下文构建失败，请检查工件内容后重试。",
   ARTIFACT_SOURCE_NOT_FOUND: "找不到指定的来源工件。",
   ARTIFACT_SOURCE_UNREADABLE: "来源工件无法读取，请检查仓库连接或本地目录配置。",
+  PLANNING_REQUEST_CREATE_ERROR: "规划请求创建失败，请稍后重试。",
+  PLANNING_REQUEST_LIST_ERROR: "规划请求读取失败，请稍后重试。",
+  PLANNING_REQUEST_GOAL_REQUIRED: "请输入明确的目标描述，不能只包含空格或标点。",
+  PLANNING_REQUEST_GOAL_TOO_SHORT: "请至少输入 6 个字符，说明希望系统规划的目标。",
+  PLANNING_REQUEST_GOAL_TOO_LONG: "目标描述请控制在 500 个字符以内。",
 };
 
 export function sanitizeError(error: unknown, code: string): string {
