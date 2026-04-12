@@ -1,4 +1,5 @@
 import { cache } from "react";
+import type { Prisma } from "@/generated/prisma/client";
 import { auth } from "@/lib/auth/auth";
 
 import { headers } from "next/headers";
@@ -235,58 +236,178 @@ export const getTaskById = cache(
             },
           },
         },
+        writebacks: {
+          orderBy: [{ occurredAt: "desc" }, { updatedAt: "desc" }],
+          take: 1,
+          select: {
+            id: true,
+            taskId: true,
+            artifactId: true,
+            outcome: true,
+            writebackStatus: true,
+            summary: true,
+            errorSummary: true,
+            occurredAt: true,
+            payload: true,
+          },
+        },
       },
     });
   }
 );
 
-export const getTasksBySourceArtifactId = cache(
-  async (projectId: string, sourceArtifactId: string, status?: string) => {
-    return prisma.task.findMany({
-      where: {
-        projectId,
-        sourceArtifactId,
-        ...(status ? { status } : {}),
-      },
-      select: {
-        id: true,
-        title: true,
-        status: true,
-        currentStage: true,
-        nextStep: true,
-        createdAt: true,
-        metadata: true,
-        sourceArtifact: {
-          select: {
-            id: true,
-            type: true,
-            name: true,
-            filePath: true,
-            parent: {
-              select: {
-                id: true,
-                type: true,
-                name: true,
-                parent: {
-                  select: {
-                    id: true,
-                    type: true,
-                    name: true,
-                    parent: {
-                      select: {
-                        id: true,
-                        type: true,
-                        name: true,
-                      },
-                    },
-                  },
+const taskHistoryRecordSelect = {
+  id: true,
+  sourceArtifactId: true,
+  title: true,
+  status: true,
+  currentStage: true,
+  nextStep: true,
+  createdAt: true,
+  metadata: true,
+  sourceArtifact: {
+    select: {
+      id: true,
+      type: true,
+      name: true,
+      filePath: true,
+      metadata: true,
+      parent: {
+        select: {
+          id: true,
+          type: true,
+          name: true,
+          parent: {
+            select: {
+              id: true,
+              type: true,
+              name: true,
+              parent: {
+                select: {
+                  id: true,
+                  type: true,
+                  name: true,
                 },
               },
             },
           },
         },
       },
+    },
+  },
+  writebacks: {
+    orderBy: [{ occurredAt: "desc" }, { updatedAt: "desc" }],
+    take: 1,
+    select: {
+      id: true,
+      taskId: true,
+      artifactId: true,
+      outcome: true,
+      writebackStatus: true,
+      summary: true,
+      errorSummary: true,
+      occurredAt: true,
+      payload: true,
+    },
+  },
+} satisfies Prisma.TaskSelect;
+
+export const getTaskHistoryCandidatesByProjectId = cache(
+  async (projectId: string, status?: string) => {
+    return prisma.task.findMany({
+      where: {
+        projectId,
+        ...(status ? { status } : {}),
+      },
+      select: taskHistoryRecordSelect,
       orderBy: { createdAt: "desc" },
+    });
+  }
+);
+
+export const getTasksBySourceArtifactIds = cache(
+  async (projectId: string, sourceArtifactIds: string[], status?: string) => {
+    if (sourceArtifactIds.length === 0) {
+      return [];
+    }
+
+    return prisma.task.findMany({
+      where: {
+        projectId,
+        sourceArtifactId: {
+          in: sourceArtifactIds,
+        },
+        ...(status ? { status } : {}),
+      },
+      select: taskHistoryRecordSelect,
+      orderBy: { createdAt: "desc" },
+    });
+  }
+);
+
+export const getTasksBySourceArtifactId = cache(
+  async (projectId: string, sourceArtifactId: string, status?: string) => {
+    const tasks = await getTasksBySourceArtifactIds(projectId, [sourceArtifactId], status);
+    return tasks;
+  }
+);
+
+export const getLatestWritebackByTaskId = cache(
+  async (projectId: string, taskId: string) => {
+    return prisma.writeback.findFirst({
+      where: { projectId, taskId },
+      orderBy: [{ occurredAt: "desc" }, { updatedAt: "desc" }],
+      select: {
+        id: true,
+        taskId: true,
+        artifactId: true,
+        outcome: true,
+        writebackStatus: true,
+        summary: true,
+        errorSummary: true,
+        occurredAt: true,
+        payload: true,
+      },
+    });
+  }
+);
+
+export const getLatestWritebackByArtifactId = cache(
+  async (projectId: string, artifactId: string) => {
+    return prisma.writeback.findFirst({
+      where: { projectId, artifactId },
+      orderBy: [{ occurredAt: "desc" }, { updatedAt: "desc" }],
+      select: {
+        id: true,
+        taskId: true,
+        artifactId: true,
+        outcome: true,
+        writebackStatus: true,
+        summary: true,
+        errorSummary: true,
+        occurredAt: true,
+        payload: true,
+      },
+    });
+  }
+);
+
+export const getWritebackHistoryByArtifactId = cache(
+  async (projectId: string, artifactId: string) => {
+    return prisma.writeback.findMany({
+      where: { projectId, artifactId },
+      orderBy: [{ occurredAt: "desc" }, { updatedAt: "desc" }],
+      select: {
+        id: true,
+        taskId: true,
+        artifactId: true,
+        outcome: true,
+        writebackStatus: true,
+        summary: true,
+        errorSummary: true,
+        occurredAt: true,
+        payload: true,
+      },
     });
   }
 );
