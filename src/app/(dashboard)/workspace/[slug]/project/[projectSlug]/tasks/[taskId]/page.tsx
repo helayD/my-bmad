@@ -5,7 +5,7 @@ import { TaskDetailView } from "@/components/tasks/task-detail-view";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { getProjectBySlug, getTaskById } from "@/lib/db/helpers";
-import { resolveTaskSourceArtifact, resolveTaskSourceHierarchy } from "@/lib/tasks";
+import { resolveTaskLatestWriteback, resolveTaskSourceArtifact, resolveTaskSourceHierarchy } from "@/lib/tasks";
 import { guardWorkspacePage } from "@/lib/workspace/page-guard";
 
 interface TaskDetailPageProps {
@@ -36,6 +36,7 @@ export default async function TaskDetailPage({ params }: TaskDetailPageProps) {
         metadata: task.metadata,
       })
     : null;
+  const latestWriteback = resolveTaskLatestWriteback(task.writebacks);
 
   return (
     <div className="mx-auto max-w-5xl space-y-6 p-4">
@@ -78,6 +79,7 @@ export default async function TaskDetailPage({ params }: TaskDetailPageProps) {
           project: { slug: task.project.slug, name: task.project.name },
           workspace: { slug: task.workspace.slug, name: task.workspace.name },
           sourceArtifact,
+          latestWriteback,
         }}
         sourceHierarchy={sourceHierarchy}
       />

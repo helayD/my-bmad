@@ -6,12 +6,13 @@ import { StaggeredList, StaggeredItem } from "@/components/shared/staggered-list
 import type { StoryDetail, StoryStatus } from "@/lib/bmad/types";
 
 const kanbanColumns: { status: StoryStatus; label: string; color: string }[] = [
-  { status: "backlog", label: "Backlog", color: "bg-muted-foreground" },
-  { status: "ready-for-dev", label: "Ready for Dev", color: "bg-purple-500" },
-  { status: "in-progress", label: "In Progress", color: "bg-info" },
-  { status: "review", label: "In Review", color: "bg-warning" },
-  { status: "blocked", label: "Blocked", color: "bg-destructive" },
-  { status: "done", label: "Done", color: "bg-success" },
+  { status: "backlog", label: "待处理", color: "bg-muted-foreground" },
+  { status: "planned", label: "已规划", color: "bg-primary" },
+  { status: "ready-for-dev", label: "可开发", color: "bg-purple-500" },
+  { status: "in-progress", label: "进行中", color: "bg-info" },
+  { status: "review", label: "待评审", color: "bg-warning" },
+  { status: "blocked", label: "已阻塞", color: "bg-destructive" },
+  { status: "done", label: "已完成", color: "bg-success" },
 ];
 
 interface KanbanBoardProps {
@@ -21,9 +22,9 @@ interface KanbanBoardProps {
 export function KanbanBoard({ stories }: KanbanBoardProps) {
   if (stories.length === 0) {
     return (
-      <div className="flex items-center justify-center h-32 rounded-lg border border-dashed border-border/50 text-muted-foreground">
-        No story matches the filters
-      </div>
+        <div className="flex items-center justify-center h-32 rounded-lg border border-dashed border-border/50 text-muted-foreground">
+        没有符合当前筛选条件的 Story
+        </div>
     );
   }
 
@@ -67,7 +68,7 @@ export function KanbanBoard({ stories }: KanbanBoardProps) {
                     {story.totalTasks > 0 && (
                       <div className="space-y-1">
                         <div className="flex justify-between text-xs text-muted-foreground">
-                          <span>Tasks</span>
+                          <span>任务</span>
                           <span>
                             {story.completedTasks}/{story.totalTasks}
                           </span>
@@ -89,7 +90,7 @@ export function KanbanBoard({ stories }: KanbanBoardProps) {
               ))}
               {columnStories.length === 0 && (
                 <div className="flex items-center justify-center h-20 rounded-lg border border-dashed border-border/50 text-xs text-muted-foreground">
-                  No stories
+                  暂无 Story
                 </div>
               )}
             </div>

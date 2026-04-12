@@ -7,6 +7,9 @@ import {
   TASK_INTENT_LABELS,
   TASK_PRIORITY_LABELS,
   TASK_STATUS_LABELS,
+  WRITEBACK_OUTCOME_LABELS,
+  WRITEBACK_STATUS_LABELS,
+  buildSourceArtifactHref,
   buildTaskSourcePathText,
   formatArtifactTypeLabel,
   resolveTaskCurrentActivity,
@@ -14,6 +17,7 @@ import {
   type TaskIntent,
   type TaskPriority,
   type TaskStatus,
+  type TaskWritebackView,
 } from "@/lib/tasks";
 
 interface TaskDetailViewProps {
@@ -37,6 +41,7 @@ interface TaskDetailViewProps {
       type: string;
       filePath: string;
     } | null;
+    latestWriteback: TaskWritebackView | null;
   };
   sourceHierarchy: TaskSourceHierarchyItem[];
 }
@@ -50,8 +55,10 @@ export function TaskDetailView({ task, sourceHierarchy }: TaskDetailViewProps) {
   const sourcePathText = sourceHierarchy.length > 0 ? buildTaskSourcePathText(sourceHierarchy) : "";
 
   const sourceHref = task.sourceArtifact?.id
-    ? `/workspace/${task.workspace.slug}/project/${task.project.slug}?artifactId=${task.sourceArtifact.id}#artifact-tree`
+    ? buildSourceArtifactHref(task.workspace.slug, task.project.slug, task.sourceArtifact.id)
     : null;
+  const hasWritebackConflict = (task.status === "done" || task.status === "blocked")
+    && (!task.latestWriteback || task.latestWriteback.writebackStatus !== "succeeded");
 
   return (
     <div className="space-y-6">
@@ -89,6 +96,45 @@ export function TaskDetailView({ task, sourceHierarchy }: TaskDetailViewProps) {
 
       <Card>
         <CardHeader>
+          <CardTitle>回写状态</CardTitle>
+          <CardDescription>
+            用于确认当前任务结果是否已经成功同步回来源工件。
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4 text-sm">
+          {task.latestWriteback ? (
+            <>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge>{WRITEBACK_STATUS_LABELS[task.latestWriteback.writebackStatus]}</Badge>
+                <Badge variant="outline">{WRITEBACK_OUTCOME_LABELS[task.latestWriteback.outcome]}</Badge>
+                {hasWritebackConflict ? <Badge variant="outline">待处理</Badge> : null}
+              </div>
+              <div className="grid gap-3 rounded-lg border bg-muted/20 p-4 sm:grid-cols-2">
+                <DetailField
+                  label="回写时间"
+                  value={new Date(task.latestWriteback.occurredAt).toLocaleString("zh-CN", { hour12: false })}
+                />
+                <DetailField label="下一步建议" value={task.latestWriteback.recoveryHint ?? "可继续查看来源工件中的最新状态。"} />
+                <DetailField label="回写摘要" value={task.latestWriteback.summary} className="sm:col-span-2" />
+                {task.latestWriteback.errorSummary ? (
+                  <DetailField label="失败原因" value={task.latestWriteback.errorSummary} className="sm:col-span-2" />
+                ) : null}
+              </div>
+            </>
+          ) : hasWritebackConflict ? (
+            <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
+              任务已结束，但结果尚未成功回写到来源工件。请先处理回写异常，再继续依赖该工件的最新执行状态。
+            </div>
+          ) : (
+            <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+              当前任务还没有回写记录。通常会在任务进入已完成、失败或中断等终态后生成。
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
           <CardTitle>来源工件引用</CardTitle>
           <CardDescription>
             任务与 BMAD 工件之间的最小追踪链路。
@@ -97,12 +143,14 @@ export function TaskDetailView({ task, sourceHierarchy }: TaskDetailViewProps) {
         <CardContent className="space-y-4 text-sm">
           {task.sourceArtifact ? (
             <>
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge variant="outline">{formatArtifactTypeLabel(task.sourceArtifact.type)}</Badge>
-                <span className="font-medium">{task.sourceArtifact.name}</span>
+              <div className="grid gap-3 rounded-lg border bg-muted/20 p-4 sm:grid-cols-2">
+                <DetailField label="来源工件类型" value={formatArtifactTypeLabel(task.sourceArtifact.type)} />
+                <DetailField label="来源工件名称" value={task.sourceArtifact.name} />
+                <DetailField label="来源文件路径" value={task.sourceArtifact.filePath} className="sm:col-span-2" />
+                {sourcePathText ? (
+                  <DetailField label="层级路径" value={sourcePathText} className="sm:col-span-2" />
+                ) : null}
               </div>
-              <p className="break-all text-muted-foreground">{task.sourceArtifact.filePath}</p>
-              {sourcePathText ? <p className="text-muted-foreground">{sourcePathText}</p> : null}
               {sourceHierarchy.length > 0 ? (
                 <div className="flex flex-wrap items-center gap-2 text-muted-foreground">
                   {sourceHierarchy.map((item, index) => (
@@ -126,6 +174,15 @@ export function TaskDetailView({ task, sourceHierarchy }: TaskDetailViewProps) {
           ) : <p className="text-muted-foreground">该任务当前没有关联来源工件。</p>}
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+function DetailField({ label, value, className }: { label: string; value: string; className?: string }) {
+  return (
+    <div className={className}>
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="mt-1 break-all text-sm leading-6">{value}</div>
     </div>
   );
 }

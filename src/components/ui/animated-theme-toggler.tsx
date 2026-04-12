@@ -11,6 +11,14 @@ interface AnimatedThemeTogglerProps extends React.ComponentPropsWithoutRef<"butt
   duration?: number
 }
 
+interface DocumentWithViewTransition extends Document {
+  startViewTransition?: (
+    callback: () => void | Promise<void>
+  ) => {
+    ready: Promise<unknown>
+  }
+}
+
 export const AnimatedThemeToggler = ({
   className,
   duration = 400,
@@ -25,13 +33,14 @@ export const AnimatedThemeToggler = ({
     if (!buttonRef.current) return
 
     const newTheme = isDark ? "light" : "dark"
+    const documentWithTransition = document as DocumentWithViewTransition
 
-    if (!document.startViewTransition) {
+    if (!documentWithTransition.startViewTransition) {
       setTheme(newTheme)
       return
     }
 
-    await document.startViewTransition(() => {
+    await documentWithTransition.startViewTransition(() => {
       flushSync(() => {
         setTheme(newTheme)
       })
@@ -69,7 +78,7 @@ export const AnimatedThemeToggler = ({
       {...props}
     >
       {mounted ? (isDark ? <Sun /> : <Moon />) : <Moon />}
-      <span className="sr-only">Toggle theme</span>
+      <span className="sr-only">切换主题</span>
     </button>
   )
 }

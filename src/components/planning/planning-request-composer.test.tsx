@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
   getPlanningGoalDescribedBy,
@@ -8,6 +8,7 @@ import {
   PLANNING_GOAL_ERROR_ID,
   PLANNING_GOAL_HELP_ID,
   reconcileLatestAcceptedPlanningRequest,
+  submitPlanningRequestFlow,
 } from "./planning-request-composer";
 
 const baseRequest = {
@@ -16,6 +17,13 @@ const baseRequest = {
   status: "analyzing" as const,
   progressPercent: 10,
   nextStep: "等待系统识别规划意图并选择 PM Agent 与 Skills",
+  routeType: null,
+  selectionReasonCode: null,
+  selectionReasonSummary: null,
+  selectedAgentKeys: [],
+  selectedSkillKeys: [],
+  analyzedAt: null,
+  executionHandoffDraft: null,
   createdAt: "2026-04-11T00:20:00.000Z",
   createdByUser: {
     id: "user-1",
@@ -32,6 +40,7 @@ describe("PlanningRequestComposerView", () => {
         onGoalChange={() => {}}
         onSubmit={() => {}}
         onGoalKeyDown={() => {}}
+        onResolveAnalysis={() => {}}
         isPending={false}
         error="请输入明确的目标描述，不能只包含空格或标点。"
         latestAcceptedRequest={null}
@@ -55,6 +64,7 @@ describe("PlanningRequestComposerView", () => {
         onGoalChange={() => {}}
         onSubmit={() => {}}
         onGoalKeyDown={() => {}}
+        onResolveAnalysis={() => {}}
         isPending={false}
         error={null}
         latestAcceptedRequest={baseRequest}
@@ -77,6 +87,7 @@ describe("PlanningRequestComposerView", () => {
         onGoalChange={() => {}}
         onSubmit={() => {}}
         onGoalKeyDown={() => {}}
+        onResolveAnalysis={() => {}}
         isPending
         error={null}
         latestAcceptedRequest={null}
@@ -96,6 +107,7 @@ describe("PlanningRequestComposerView", () => {
         onGoalChange={() => {}}
         onSubmit={() => {}}
         onGoalKeyDown={() => {}}
+        onResolveAnalysis={() => {}}
         isPending={false}
         error="请输入明确的目标描述，不能只包含空格或标点。"
         latestAcceptedRequest={null}
@@ -115,6 +127,7 @@ describe("PlanningRequestComposerView", () => {
         onGoalChange={() => {}}
         onSubmit={() => {}}
         onGoalKeyDown={() => {}}
+        onResolveAnalysis={() => {}}
         isPending={false}
         error={null}
         latestAcceptedRequest={null}
@@ -159,8 +172,59 @@ describe("planning request composer helpers", () => {
       status: "planning" as const,
       progressPercent: 45,
       nextStep: "正在整理规划步骤与需要的 BMAD 工件",
+      routeType: "planning" as const,
     };
 
     expect(reconcileLatestAcceptedPlanningRequest([refreshedRequest], baseRequest)).toEqual(refreshedRequest);
+  });
+
+  it("creates a request and automatically triggers analysis", async () => {
+    const onCreated = vi.fn();
+    const createRequest = vi.fn().mockResolvedValue({
+      success: true,
+      data: {
+        request: baseRequest,
+      },
+    });
+    const analyzeRequest = vi.fn().mockResolvedValue({
+      success: true,
+      data: {
+        request: {
+          ...baseRequest,
+          status: "planning",
+          progressPercent: 45,
+          routeType: "planning",
+          selectionReasonCode: "new-feature-or-product-scope",
+          selectionReasonSummary: "目标包含新功能建设或产品范围扩展，需要先进入规划链路拆解需求与工件。",
+          selectedAgentKeys: ["bmad-agent-pm"],
+          selectedSkillKeys: ["bmad-create-prd", "bmad-create-epics-and-stories"],
+          analyzedAt: "2026-04-11T00:21:00.000Z",
+        },
+        didAnalyze: true,
+      },
+    });
+
+    const result = await submitPlanningRequestFlow({
+      workspaceId: "cworkspaceid0000000000001",
+      projectId: "cprojectid0000000000000001",
+      rawGoal: baseRequest.rawGoal,
+      createRequest,
+      analyzeRequest,
+      onCreated,
+    });
+
+    expect(createRequest).toHaveBeenCalledTimes(1);
+    expect(onCreated).toHaveBeenCalledWith(baseRequest);
+    expect(analyzeRequest).toHaveBeenCalledWith({
+      workspaceId: "cworkspaceid0000000000001",
+      projectId: "cprojectid0000000000000001",
+      planningRequestId: "planning-1",
+    });
+    expect(result.latestRequest).toEqual(
+      expect.objectContaining({
+        status: "planning",
+        routeType: "planning",
+      }),
+    );
   });
 });

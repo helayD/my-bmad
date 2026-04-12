@@ -3,6 +3,7 @@ export type StoryStatus =
   | "in-progress"
   | "review"
   | "blocked"
+  | "planned"
   | "ready-for-dev"
   | "backlog"
   | "unknown";

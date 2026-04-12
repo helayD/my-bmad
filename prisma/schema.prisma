@@ -107,13 +107,13 @@ model Workspace {
   updatedAt  DateTime              @updatedAt
 
   owner      User                  @relation("WorkspaceOwner", fields: [ownerId], references: [id], onDelete: Restrict)
-  projects   Project[]
-  tasks      Task[]
+  projects         Project[]
+  tasks            Task[]
   planningRequests PlanningRequest[]
-  writebacks Writeback[]
-  auditEvents AuditEvent[]
-  memberships  WorkspaceMembership[]
-  invitations  WorkspaceInvitation[]
+  writebacks       Writeback[]
+  auditEvents      AuditEvent[]
+  memberships      WorkspaceMembership[]
+  invitations      WorkspaceInvitation[]
 
   @@index([ownerId])
   @@map("workspaces")
@@ -130,13 +130,13 @@ model Project {
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
 
-  workspace   Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  repo        Repo?          @relation(fields: [repoId], references: [id], onDelete: SetNull)
-  artifacts   BmadArtifact[]
-  tasks       Task[]
+  workspace        Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  repo             Repo?             @relation(fields: [repoId], references: [id], onDelete: SetNull)
+  artifacts        BmadArtifact[]
+  tasks            Task[]
   planningRequests PlanningRequest[]
-  writebacks  Writeback[]
-  auditEvents AuditEvent[]
+  writebacks       Writeback[]
+  auditEvents      AuditEvent[]
 
   @@unique([workspaceId, slug])
   @@index([workspaceId])
@@ -250,27 +250,73 @@ model Task {
 }
 
 model PlanningRequest {
-  id              String    @id @default(cuid())
-  workspaceId     String
-  projectId       String
-  createdByUserId String
-  rawGoal         String
-  status          String    @default("analyzing")
-  progressPercent Int       @default(10)
-  nextStep        String
-  metadata        Json?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  id                     String    @id @default(cuid())
+  workspaceId            String
+  projectId              String
+  createdByUserId        String
+  rawGoal                String
+  status                 String    @default("analyzing")
+  progressPercent        Int       @default(10)
+  nextStep               String
+  routeType              String?
+  selectionReasonCode    String?
+  selectionReasonSummary String?
+  selectedAgentKeys      String[]  @default([])
+  selectedSkillKeys      String[]  @default([])
+  analyzedAt             DateTime?
+  executionHandoffDraft  Json?
+  executionStartedAt     DateTime?
+  executionCompletedAt   DateTime?
+  executionFailedAt      DateTime?
+  artifactSummary        Json?
+  generatedArtifactCount Int       @default(0)
+  lastExecutionErrorCode String?
+  metadata               Json?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
 
-  workspace       Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  project         Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  createdByUser   User       @relation("PlanningRequestCreator", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  workspace              Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  project                Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdByUser          User        @relation("PlanningRequestCreator", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  executionSteps         PlanningExecutionStep[]
+  auditEvents            AuditEvent[]
 
   @@index([workspaceId, createdAt])
   @@index([projectId, createdAt])
   @@index([projectId, status, createdAt])
+  @@index([projectId, routeType, createdAt])
   @@index([createdByUserId, createdAt])
   @@map("planning_requests")
+}
+
+model PlanningExecutionStep {
+  id                String          @id @default(cuid())
+  planningRequestId String
+  skillKey          String
+  stepKey           String
+  sequence          Int
+  status            String          @default("pending")
+  title             String
+  startedAt         DateTime?
+  completedAt       DateTime?
+  failedAt          DateTime?
+  errorCode         String?
+  errorMessage      String?
+  outputSummary     String?
+  artifactPaths     String[]        @default([])
+  retryCount        Int             @default(0)
+  details           Json?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  planningRequest   PlanningRequest @relation(fields: [planningRequestId], references: [id], onDelete: Cascade)
+
+  @@unique([planningRequestId, stepKey])
+  @@unique([planningRequestId, sequence])
+  @@index([planningRequestId, sequence])
+  @@index([planningRequestId, status])
+  @@index([planningRequestId, skillKey])
+  @@map("planning_execution_steps")
 }
 
 model Writeback {
@@ -303,26 +349,29 @@ model Writeback {
 }
 
 model AuditEvent {
-  id          String       @id @default(cuid())
-  workspaceId String
-  projectId   String
-  taskId      String?
-  artifactId  String?
-  eventName   String
-  payload     Json?
-  occurredAt  DateTime
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
+  id                String          @id @default(cuid())
+  workspaceId       String
+  projectId         String
+  taskId            String?
+  artifactId        String?
+  planningRequestId String?
+  eventName         String
+  payload           Json?
+  occurredAt        DateTime
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
 
-  workspace   Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  project     Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  task        Task?        @relation(fields: [taskId], references: [id], onDelete: SetNull)
-  artifact    BmadArtifact? @relation(fields: [artifactId], references: [id], onDelete: SetNull)
+  workspace         Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  project           Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  task              Task?           @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  artifact          BmadArtifact?   @relation(fields: [artifactId], references: [id], onDelete: SetNull)
+  planningRequest   PlanningRequest? @relation(fields: [planningRequestId], references: [id], onDelete: SetNull)
 
   @@index([workspaceId, occurredAt])
   @@index([projectId, occurredAt])
   @@index([taskId, occurredAt])
   @@index([artifactId, occurredAt])
+  @@index([planningRequestId, occurredAt])
   @@index([projectId, eventName, occurredAt])
   @@map("audit_events")
 }

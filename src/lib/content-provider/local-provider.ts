@@ -7,6 +7,10 @@ import {
   BMAD_OUTPUT_DIR,
   BMAD_PLANNING_DIR,
 } from "@/lib/bmad/utils";
+import {
+  assertSafeRelativePath,
+  resolveSafePathWithinRoot,
+} from "@/lib/content-provider/path-safety";
 import type { ContentProvider, ContentProviderTree } from "./types";
 import { LOCAL_PROVIDER_DEFAULTS } from "./types";
 
@@ -334,33 +338,8 @@ export class LocalProvider implements ContentProvider {
     return fs.readFile(fullPath, "utf-8");
   }
 
-  /**
-   * Guard 2 — Path traversal jail.
-   * Ensures the resolved path stays within resolvedRoot.
-   * Also rejects null bytes and Unicode slash look-alikes.
-   */
-  private assertSafePath(filePath: string): void {
-    // Reject null bytes (F12)
-    if (filePath.includes("\0")) {
-      throw new Error("Invalid path: null bytes not allowed");
-    }
-
-    // Reject Unicode slash look-alikes (F23: U+2215, U+FF0F)
-    if (/[\u2215\uFF0F]/.test(filePath)) {
-      throw new Error("Invalid path: unsupported characters");
-    }
-
-    if (path.isAbsolute(filePath)) {
-      throw new Error("Path traversal detected");
-    }
-
-    if (/(?:^|[\\/])\.\.(?:[\\/]|$)/.test(filePath)) {
-      throw new Error("Path traversal detected");
-    }
-  }
-
   private async resolveVirtualPath(filePath: string): Promise<string> {
-    this.assertSafePath(filePath);
+    assertSafeRelativePath(filePath);
 
     const segments = filePath.split(/[\\/]+/).filter(Boolean);
     const [firstSegment, ...restSegments] = segments;
@@ -371,14 +350,6 @@ export class LocalProvider implements ContentProvider {
       throw new Error("Access denied: only BMAD directories are accessible");
     }
 
-    const resolved = path.resolve(scanRoot.absoluteRoot, ...restSegments);
-    if (
-      !resolved.startsWith(scanRoot.absoluteRoot + path.sep) &&
-      resolved !== scanRoot.absoluteRoot
-    ) {
-      throw new Error("Path traversal detected");
-    }
-
-    return resolved;
+    return resolveSafePathWithinRoot(scanRoot.absoluteRoot, restSegments.join(path.sep));
   }
 }

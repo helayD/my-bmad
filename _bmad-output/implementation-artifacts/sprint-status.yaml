@@ -1,5 +1,5 @@
 # generated: 2026-04-04T22:05:00+08:00
-# last_updated: 2026-04-04T22:05:00+08:00
+# last_updated: 2026-04-11T23:39:21+08:00
 # project: my-bmad
 # project_key: NOKEY
 # tracking_system: file-system
@@ -17,7 +17,7 @@
 # - Dev 将 Story 移到 review，然后运行 code-review（建议换 LLM 以获得新视角）
 
 generated: "2026-04-04T22:05:00+08:00"
-last_updated: "2026-04-09T10:42:00+08:00"
+last_updated: "2026-04-11T23:39:21+08:00"
 project: my-bmad
 project_key: NOKEY
 tracking_system: file-system
@@ -41,16 +41,16 @@ development_status:
   epic-2: in-progress
   2-1-BMAD工件层级模型与解析引擎: in-progress
   2-2-从BMAD工件发起执行任务: review
-  2-3-执行任务与来源工件的追踪映射: ready-for-dev
-  2-4-查看工件关联的执行历史状态与产物: backlog
-  2-5-执行结果回写到BMAD工件链路: backlog
+  2-3-执行任务与来源工件的追踪映射: in-progress
+  2-4-查看工件关联的执行历史状态与产物: in-progress
+  2-5-执行结果回写到BMAD工件链路: in-progress
   epic-2-回顾: optional
 
   # ── Epic 3: 一句话目标到规划结果 ──
-  epic-3: backlog
-  3-1-自然语言目标输入与规划请求创建: backlog
-  3-2-规划意图识别与Agent-Skill选择: backlog
-  3-3-规划执行与BMAD工件生成: backlog
+  epic-3: in-progress
+  3-1-自然语言目标输入与规划请求创建: review
+  3-2-规划意图识别与Agent-Skill选择: review
+  3-3-规划执行与BMAD工件生成: review
   3-4-规划结果自动衔接执行链路: backlog
   3-5-规划到执行派发的完整链路可见性: backlog
   epic-3-回顾: optional

@@ -5,7 +5,12 @@ import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Bot, Loader2, Sparkles } from "lucide-react";
 import { toast } from "sonner";
-import { createPlanningRequestAction } from "@/actions/planning-actions";
+import {
+  analyzePlanningRequestAction,
+  createPlanningRequestAction,
+  executePlanningRequestAction,
+  retryAnalyzePlanningRequestAction,
+} from "@/actions/planning-actions";
 import { PlanningRequestList } from "@/components/planning/planning-request-list";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -32,11 +37,31 @@ export const PLANNING_GOAL_HELP_ID = "planning-goal-help";
 export const PLANNING_GOAL_ERROR_ID = "planning-goal-error";
 const PLANNING_REQUEST_SUBMIT_ERROR = "规划请求创建失败，请稍后重试。";
 
+type CreatePlanningRequestResult = Awaited<ReturnType<typeof createPlanningRequestAction>>;
+type AnalyzePlanningRequestResult = Awaited<ReturnType<typeof analyzePlanningRequestAction>>;
+
+interface SubmitPlanningRequestFlowInput {
+  workspaceId: string;
+  projectId: string;
+  rawGoal: string;
+  createRequest?: typeof createPlanningRequestAction;
+  analyzeRequest?: typeof analyzePlanningRequestAction;
+  onCreated?: (request: PlanningRequestListItem) => void | Promise<void>;
+}
+
+interface SubmitPlanningRequestFlowResult {
+  createResult: CreatePlanningRequestResult;
+  analyzeResult: AnalyzePlanningRequestResult | null;
+  latestRequest: PlanningRequestListItem | null;
+}
+
 export interface PlanningRequestComposerViewProps {
   goal: string;
   onGoalChange: (value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onGoalKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
+  onResolveAnalysis: (request: PlanningRequestListItem) => void;
+  onExecutePlanning: (request: PlanningRequestListItem) => void;
   isPending: boolean;
   error: string | null;
   latestAcceptedRequest: PlanningRequestListItem | null;
@@ -76,6 +101,60 @@ export function reconcileLatestAcceptedPlanningRequest(
   return serverRequests.find((request) => request.id === latestAcceptedRequest.id) ?? latestAcceptedRequest;
 }
 
+export async function submitPlanningRequestFlow(
+  input: SubmitPlanningRequestFlowInput,
+): Promise<SubmitPlanningRequestFlowResult> {
+  const createRequest = input.createRequest ?? createPlanningRequestAction;
+  const analyzeRequest = input.analyzeRequest ?? analyzePlanningRequestAction;
+
+  const createResult = await createRequest({
+    workspaceId: input.workspaceId,
+    projectId: input.projectId,
+    rawGoal: input.rawGoal,
+  });
+
+  if (!createResult.success) {
+    return {
+      createResult,
+      analyzeResult: null,
+      latestRequest: null,
+    };
+  }
+
+  await input.onCreated?.(createResult.data.request);
+
+  const analyzeResult = await analyzeRequest({
+    workspaceId: input.workspaceId,
+    projectId: input.projectId,
+    planningRequestId: createResult.data.request.id,
+  });
+
+  return {
+    createResult,
+    analyzeResult,
+    latestRequest: analyzeResult?.success
+      ? analyzeResult.data.request
+      : createResult.data.request,
+  };
+}
+
+function getAnalysisSuccessToastMessage(request: PlanningRequestListItem): string {
+  if (request.status === "execution-ready") {
+    return "已识别为可直接进入执行";
+  }
+
+  return "已完成规划意图识别";
+}
+
+function getAnalysisRecoveryErrorMessage(request: PlanningRequestListItem): string {
+  return request.selectionReasonSummary ?? request.nextStep;
+}
+
+function getExecutionFailureMessage(request: PlanningRequestListItem): string {
+  return request.executionSteps.find((step) => step.status === "failed")?.errorMessage
+    ?? request.nextStep;
+}
+
 export function PlanningRequestComposer({
   workspaceId,
   projectId,
@@ -112,22 +191,38 @@ export function PlanningRequestComposer({
     setIsSubmitLocked(true);
     startTransition(async () => {
       try {
-        const result = await createPlanningRequestAction({
+        const flowResult = await submitPlanningRequestFlow({
           workspaceId,
           projectId,
           rawGoal: validation.rawGoal,
+          onCreated: (request) => {
+            setGoal("");
+            setLatestAcceptedRequest(request);
+            toast.success("规划请求已接收，正在分析意图");
+            router.refresh();
+          },
         });
 
-        if (!result.success) {
-          setError(result.error);
-          toast.error(result.error);
+        if (!flowResult.createResult.success) {
+          setError(flowResult.createResult.error);
+          toast.error(flowResult.createResult.error);
           return;
         }
 
-        setGoal("");
-        setLatestAcceptedRequest(result.data.request);
+        if (!flowResult.analyzeResult?.success) {
+          if (flowResult.analyzeResult) {
+            setError(flowResult.analyzeResult.error);
+            toast.error(flowResult.analyzeResult.error);
+          } else {
+            setError(PLANNING_REQUEST_SUBMIT_ERROR);
+            toast.error(PLANNING_REQUEST_SUBMIT_ERROR);
+          }
+          router.refresh();
+          return;
+        }
 
-        toast.success("规划请求已接收");
+        setLatestAcceptedRequest(flowResult.latestRequest);
+        toast.success(getAnalysisSuccessToastMessage(flowResult.analyzeResult.data.request));
         router.refresh();
       } catch {
         setError(PLANNING_REQUEST_SUBMIT_ERROR);
@@ -146,12 +241,113 @@ export function PlanningRequestComposer({
     }
   }
 
+  function handleResolveAnalysis(request: PlanningRequestListItem) {
+    if (submitLockRef.current || isSubmitting) {
+      return;
+    }
+
+    setError(null);
+    submitLockRef.current = true;
+    setIsSubmitLocked(true);
+    startTransition(async () => {
+      try {
+        const action =
+          request.status === "failed"
+            ? retryAnalyzePlanningRequestAction
+            : analyzePlanningRequestAction;
+
+        const result = await action({
+          workspaceId,
+          projectId,
+          planningRequestId: request.id,
+        });
+
+        if (!result.success) {
+          setError(result.error);
+          toast.error(result.error);
+          return;
+        }
+
+        setLatestAcceptedRequest(result.data.request);
+        if (result.data.request.status === "failed") {
+          const errorMessage = getAnalysisRecoveryErrorMessage(result.data.request);
+          setError(errorMessage);
+          toast.error(errorMessage);
+        } else if (result.data.request.status === "analyzing") {
+          toast.success("已继续尝试分析规划请求");
+        } else {
+          toast.success(getAnalysisSuccessToastMessage(result.data.request));
+        }
+        router.refresh();
+      } catch {
+        const fallbackMessage =
+          request.status === "failed"
+            ? "重新分析规划请求失败，请稍后重试。"
+            : "继续分析规划请求失败，请稍后重试。";
+        setError(fallbackMessage);
+        toast.error(fallbackMessage);
+      } finally {
+        submitLockRef.current = false;
+        setIsSubmitLocked(false);
+      }
+    });
+  }
+
+  function handleExecutePlanning(request: PlanningRequestListItem) {
+    if (submitLockRef.current || isSubmitting) {
+      return;
+    }
+
+    setError(null);
+    submitLockRef.current = true;
+    setIsSubmitLocked(true);
+    startTransition(async () => {
+      try {
+        const result = await executePlanningRequestAction({
+          workspaceId,
+          projectId,
+          planningRequestId: request.id,
+        });
+
+        if (!result.success) {
+          setError(result.error);
+          toast.error(result.error);
+          return;
+        }
+
+        setLatestAcceptedRequest(result.data.request);
+        if (result.data.request.status === "failed") {
+          const failureMessage = getExecutionFailureMessage(result.data.request);
+          setError(failureMessage);
+          toast.error(failureMessage);
+        } else if (result.data.request.status === "awaiting-confirmation") {
+          toast.success("规划工件已生成，可以查看摘要并继续确认。");
+        } else if (result.data.didExecute) {
+          toast.success("规划执行已开始并同步最新工件。");
+        } else {
+          toast.success("规划请求状态已是最新，无需重复执行。");
+        }
+
+        router.refresh();
+      } catch {
+        const fallbackMessage = "执行规划失败，请稍后重试。";
+        setError(fallbackMessage);
+        toast.error(fallbackMessage);
+      } finally {
+        submitLockRef.current = false;
+        setIsSubmitLocked(false);
+      }
+    });
+  }
+
   return (
     <PlanningRequestComposerView
       goal={goal}
       onGoalChange={setGoal}
       onSubmit={handleSubmit}
       onGoalKeyDown={handleGoalKeyDown}
+      onResolveAnalysis={handleResolveAnalysis}
+      onExecutePlanning={handleExecutePlanning}
       isPending={isSubmitting}
       error={error}
       latestAcceptedRequest={resolvedLatestAcceptedRequest}
@@ -166,6 +362,8 @@ export function PlanningRequestComposerView({
   onGoalChange,
   onSubmit,
   onGoalKeyDown,
+  onResolveAnalysis,
+  onExecutePlanning,
   isPending,
   error,
   latestAcceptedRequest,
@@ -278,7 +476,13 @@ export function PlanningRequestComposerView({
             这里展示当前项目最近提交的规划请求状态，方便你确认系统已经接单。
           </p>
         </div>
-        <PlanningRequestList requests={requests} />
+        <PlanningRequestList
+          requests={requests}
+          hasRepo={hasRepo}
+          isPending={isPending}
+          onResolveAnalysis={onResolveAnalysis}
+          onExecutePlanning={onExecutePlanning}
+        />
       </div>
     </section>
   );

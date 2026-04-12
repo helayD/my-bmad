@@ -4,35 +4,39 @@ import type { StoryStatus, EpicStatus } from "@/lib/bmad/types";
 
 const statusConfig: Record<string, { label: string; className: string }> = {
   done: {
-    label: "Done",
+    label: "已完成",
     className: "bg-success/15 text-success-foreground border-success/25",
   },
   "in-progress": {
-    label: "In Progress",
+    label: "进行中",
     className: "bg-info/15 text-info-foreground border-info/25",
   },
   review: {
-    label: "Review",
+    label: "待评审",
     className: "bg-warning/15 text-warning-foreground border-warning/25",
   },
   blocked: {
-    label: "Blocked",
+    label: "已阻塞",
     className: "bg-destructive/15 text-destructive-foreground border-destructive/25",
   },
+  planned: {
+    label: "已规划",
+    className: "bg-primary/10 text-primary border-primary/20",
+  },
   "ready-for-dev": {
-    label: "Ready for Dev",
+    label: "可开发",
     className: "bg-purple-500/15 text-purple-700 dark:text-purple-400 border-purple-500/25",
   },
   backlog: {
-    label: "Backlog",
+    label: "待处理",
     className: "bg-muted text-muted-foreground border-border",
   },
   "not-started": {
-    label: "Not Started",
+    label: "未开始",
     className: "bg-muted text-muted-foreground border-border",
   },
   unknown: {
-    label: "Unknown",
+    label: "未知",
     className: "bg-muted text-muted-foreground border-border",
   },
 };

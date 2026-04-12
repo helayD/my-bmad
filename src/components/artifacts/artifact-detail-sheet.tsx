@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight, ExternalLink, Loader2, Sparkles } from "lucide-react";
 import { toast } from "sonner";
@@ -31,6 +31,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { buildDefaultTaskDraft } from "@/lib/tasks/defaults";
 import {
@@ -44,7 +45,7 @@ import {
   type TaskIntent,
   type TaskPriority,
 } from "@/lib/tasks/types";
-import type { ArtifactTaskHistoryFilter, ArtifactTaskHistoryPayload } from "@/lib/tasks";
+import { buildTaskDetailHref, type ArtifactTaskHistoryFilter, type ArtifactTaskHistoryPayload } from "@/lib/tasks";
 import type { ArtifactTreeNode, ArtifactTypeString } from "@/lib/artifacts/types";
 
 interface ArtifactSelection {
@@ -91,7 +92,14 @@ export function ArtifactDetailSheet({
   const [goal, setGoal] = useState("");
   const [priority, setPriority] = useState<TaskPriority>("medium");
   const [intent, setIntent] = useState<TaskIntent>("implement");
-  const [historyFilter, setHistoryFilter] = useState<ArtifactTaskHistoryFilter>("all");
+  const [detailTabState, setDetailTabState] = useState<{
+    artifactId: string | null;
+    tab: "overview" | "history";
+  }>({ artifactId: null, tab: "overview" });
+  const [historyFilterState, setHistoryFilterState] = useState<{
+    artifactId: string | null;
+    filter: ArtifactTaskHistoryFilter;
+  }>({ artifactId: null, filter: "all" });
   const [historyReloadNonce, setHistoryReloadNonce] = useState(0);
   const [historyState, setHistoryState] = useState<{
     artifactId: string | null;
@@ -101,8 +109,10 @@ export function ArtifactDetailSheet({
     isLoading: boolean;
   }>({ artifactId: null, filter: "all", payload: null, error: null, isLoading: false });
 
-  const artifactTypeLabel = useMemo(() => formatArtifactType(selection?.node.type), [selection?.node.type]);
+  const artifactTypeLabel = formatArtifactType(selection?.node.type);
   const currentArtifactId = selection?.node.id ?? null;
+  const activeTab = detailTabState.artifactId === currentArtifactId ? detailTabState.tab : "overview";
+  const historyFilter = historyFilterState.artifactId === currentArtifactId ? historyFilterState.filter : "all";
   const isLoadingContext = open && Boolean(currentArtifactId) && contextState.artifactId !== currentArtifactId;
   const context = contextState.artifactId === currentArtifactId ? contextState.context : null;
   const loadingError = contextState.artifactId === currentArtifactId ? contextState.error : null;
@@ -110,16 +120,12 @@ export function ArtifactDetailSheet({
   const visibleCreatedTask = createdTask?.sourceArtifact.artifactId === currentArtifactId ? createdTask : null;
   const visibleHistory = historyState.artifactId === currentArtifactId && historyState.filter === historyFilter ? historyState.payload : null;
   const historyError = historyState.artifactId === currentArtifactId && historyState.filter === historyFilter ? historyState.error : null;
-  const isHistoryLoading = selection?.node.type === "STORY"
-    && open
+  const isHistoryLoading = open
+    && activeTab === "history"
     && Boolean(currentArtifactId)
     && historyState.artifactId === currentArtifactId
     && historyState.filter === historyFilter
     && historyState.isLoading;
-
-  useEffect(() => {
-    setHistoryFilter("all");
-  }, [currentArtifactId]);
 
   useEffect(() => {
     if (!open || !currentArtifactId) {
@@ -152,25 +158,26 @@ export function ArtifactDetailSheet({
   }, [currentArtifactId, open, projectId, workspaceId]);
 
   useEffect(() => {
-    if (!open || !currentArtifactId || selection?.node.type !== "STORY") {
+    if (!open || !currentArtifactId || activeTab !== "history") {
       return;
     }
 
     let cancelled = false;
-    setHistoryState({
-      artifactId: currentArtifactId,
-      filter: historyFilter,
-      payload: null,
-      error: null,
-      isLoading: true,
-    });
 
     void (async () => {
+      setHistoryState({
+        artifactId: currentArtifactId,
+        filter: historyFilter,
+        payload: null,
+        error: null,
+        isLoading: true,
+      });
+
       const result = await getArtifactTaskHistoryAction({
         workspaceId,
         projectId,
         artifactId: currentArtifactId,
-        status: historyFilter === "all" ? undefined : historyFilter,
+        status: selection?.node.type === "STORY" && historyFilter !== "all" ? historyFilter : undefined,
       });
       if (cancelled) {
         return;
@@ -198,10 +205,22 @@ export function ArtifactDetailSheet({
     return () => {
       cancelled = true;
     };
-  }, [currentArtifactId, historyFilter, historyReloadNonce, open, projectId, selection?.node.type, workspaceId]);
+  }, [activeTab, currentArtifactId, historyFilter, historyReloadNonce, open, projectId, selection?.node.type, workspaceId]);
 
   function handleOpenChange(nextOpen: boolean) {
     onOpenChange(nextOpen);
+  }
+
+  function handleHistoryFilterChange(value: ArtifactTaskHistoryFilter) {
+    setHistoryFilterState({ artifactId: currentArtifactId, filter: value });
+  }
+
+  function handleDetailTabChange(value: string) {
+    if (value !== "overview" && value !== "history") {
+      return;
+    }
+
+    setDetailTabState({ artifactId: currentArtifactId, tab: value });
   }
 
   function handleCreateTask() {
@@ -235,7 +254,7 @@ export function ArtifactDetailSheet({
   }
 
   const taskDetailHref = visibleCreatedTask
-    ? `/workspace/${workspaceSlug}/project/${projectSlug}/tasks/${visibleCreatedTask.taskId}`
+    ? buildTaskDetailHref(workspaceSlug, projectSlug, visibleCreatedTask.taskId)
     : null;
 
   return (
@@ -278,155 +297,163 @@ export function ArtifactDetailSheet({
                     </div>
                   </CardContent>
                 </Card>
+                <Tabs value={activeTab} onValueChange={handleDetailTabChange} className="space-y-4">
+                  <TabsList>
+                    <TabsTrigger value="overview">概览</TabsTrigger>
+                    <TabsTrigger value="history">执行历史</TabsTrigger>
+                  </TabsList>
 
-                {isLoadingContext ? (
-                  <ContextSkeleton />
-                ) : loadingError ? (
-                  <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
-                    {loadingError}
-                  </div>
-                ) : context ? (
-                  <>
-                    <Card>
-                      <CardHeader>
-                        <CardTitle className="text-base">上下文摘要</CardTitle>
-                        <CardDescription>
-                          创建任务时会复用这里的来源工件信息。
-                        </CardDescription>
-                      </CardHeader>
-                      <CardContent className="space-y-4">
-                        <p className="text-sm leading-6 text-muted-foreground">{context.summary}</p>
+                  <TabsContent value="overview" className="space-y-4">
+                    {isLoadingContext ? (
+                      <ContextSkeleton />
+                    ) : loadingError ? (
+                      <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
+                        {loadingError}
+                      </div>
+                    ) : context ? (
+                      <>
+                        <Card>
+                          <CardHeader>
+                            <CardTitle className="text-base">上下文摘要</CardTitle>
+                            <CardDescription>
+                              创建任务时会复用这里的来源工件信息。
+                            </CardDescription>
+                          </CardHeader>
+                          <CardContent className="space-y-4">
+                            <p className="text-sm leading-6 text-muted-foreground">{context.summary}</p>
 
-                        {context.acceptanceCriteria.length > 0 ? (
-                          <div className="space-y-2">
-                            <div className="text-sm font-medium">相关验收标准</div>
-                            <ul className="space-y-2 text-sm text-muted-foreground">
-                              {context.acceptanceCriteria.map((criterion, index) => (
-                                <li key={criterion} className="flex gap-2">
-                                  <span>{index + 1}.</span>
-                                  <span>{criterion}</span>
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                        ) : null}
+                            {context.acceptanceCriteria.length > 0 ? (
+                              <div className="space-y-2">
+                                <div className="text-sm font-medium">相关验收标准</div>
+                                <ul className="space-y-2 text-sm text-muted-foreground">
+                                  {context.acceptanceCriteria.map((criterion, index) => (
+                                    <li key={criterion} className="flex gap-2">
+                                      <span>{index + 1}.</span>
+                                      <span>{criterion}</span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            ) : null}
 
-                        {context.relatedStoryIds.length > 0 ? (
-                          <div className="space-y-2">
-                            <div className="text-sm font-medium">关联 Story</div>
-                            <div className="flex flex-wrap gap-2">
-                              {context.relatedStoryIds.map((storyId) => (
-                                <Badge key={storyId} variant="outline">
-                                  Story {storyId}
-                                </Badge>
-                              ))}
+                            {context.relatedStoryIds.length > 0 ? (
+                              <div className="space-y-2">
+                                <div className="text-sm font-medium">关联 Story</div>
+                                <div className="flex flex-wrap gap-2">
+                                  {context.relatedStoryIds.map((storyId) => (
+                                    <Badge key={storyId} variant="outline">
+                                      Story {storyId}
+                                    </Badge>
+                                  ))}
+                                </div>
+                              </div>
+                            ) : null}
+                          </CardContent>
+                        </Card>
+
+                        <Card>
+                          <CardHeader>
+                            <CardTitle className="text-base">工件详情</CardTitle>
+                            <CardDescription>可在创建前快速确认来源内容是否正确。</CardDescription>
+                          </CardHeader>
+                          <CardContent>
+                            <div className="max-h-80 overflow-hidden rounded-lg border p-4">
+                              <MarkdownRenderer content={context.detailMarkdown} />
                             </div>
-                          </div>
+                          </CardContent>
+                        </Card>
+
+                        <Card>
+                          <CardHeader>
+                            <CardTitle className="flex items-center gap-2 text-base">
+                              <Sparkles className="h-4 w-4" />
+                              发起执行
+                            </CardTitle>
+                            <CardDescription>
+                              低摩擦创建任务：补充目标、优先级和执行意图后立即提交。
+                            </CardDescription>
+                          </CardHeader>
+                          <CardContent className="space-y-4">
+                            <Field label="任务标题">
+                              <Input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={120} />
+                            </Field>
+
+                            <Field label="任务目标">
+                              <Textarea value={goal} onChange={(event) => setGoal(event.target.value)} rows={4} maxLength={500} />
+                            </Field>
+
+                            <div className="grid gap-4 sm:grid-cols-2">
+                              <Field label="优先级">
+                                <Select value={priority} onValueChange={(value) => setPriority(value as TaskPriority)}>
+                                  <SelectTrigger className="w-full">
+                                    <SelectValue placeholder="选择优先级" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {TASK_PRIORITY_VALUES.map((item) => (
+                                      <SelectItem key={item} value={item}>
+                                        {TASK_PRIORITY_LABELS[item]}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </Field>
+
+                              <Field label="执行意图">
+                                <Select value={intent} onValueChange={(value) => setIntent(value as TaskIntent)}>
+                                  <SelectTrigger className="w-full">
+                                    <SelectValue placeholder="选择执行意图" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {TASK_INTENT_VALUES.map((item) => (
+                                      <SelectItem key={item} value={item}>
+                                        {TASK_INTENT_LABELS[item]}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </Field>
+                            </div>
+
+                            {submitError ? <p className="text-sm text-destructive">{submitError}</p> : null}
+                          </CardContent>
+                        </Card>
+
+                        {visibleCreatedTask ? (
+                          <Card className="border-primary/20 bg-primary/5">
+                            <CardHeader>
+                              <CardTitle className="text-base">任务已创建</CardTitle>
+                              <CardDescription>
+                                你现在可以直接查看任务详情，或切换到“执行历史”查看最新记录。
+                              </CardDescription>
+                            </CardHeader>
+                            <CardContent className="space-y-4 text-sm">
+                              <div className="grid gap-3 sm:grid-cols-3">
+                                <FeedbackItem label="当前阶段" value={visibleCreatedTask.currentStage} />
+                                <FeedbackItem label="系统正在做什么" value={visibleCreatedTask.currentActivity} />
+                                <FeedbackItem label="下一步预计是什么" value={visibleCreatedTask.nextStep} />
+                              </div>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <Badge>{TASK_STATUS_LABELS[visibleCreatedTask.status]}</Badge>
+                                <Badge variant="outline">任务 ID: {visibleCreatedTask.taskId}</Badge>
+                              </div>
+                            </CardContent>
+                          </Card>
                         ) : null}
-                      </CardContent>
-                    </Card>
+                      </>
+                    ) : null}
+                  </TabsContent>
 
-                    <Card>
-                      <CardHeader>
-                        <CardTitle className="text-base">工件详情</CardTitle>
-                        <CardDescription>可在创建前快速确认来源内容是否正确。</CardDescription>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="max-h-80 overflow-hidden rounded-lg border p-4">
-                          <MarkdownRenderer content={context.detailMarkdown} />
-                        </div>
-                      </CardContent>
-                    </Card>
-
-                    <Card>
-                      <CardHeader>
-                        <CardTitle className="flex items-center gap-2 text-base">
-                          <Sparkles className="h-4 w-4" />
-                          发起执行
-                        </CardTitle>
-                        <CardDescription>
-                          低摩擦创建任务：补充目标、优先级和执行意图后立即提交。
-                        </CardDescription>
-                      </CardHeader>
-                      <CardContent className="space-y-4">
-                        <Field label="任务标题">
-                          <Input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={120} />
-                        </Field>
-
-                        <Field label="任务目标">
-                          <Textarea value={goal} onChange={(event) => setGoal(event.target.value)} rows={4} maxLength={500} />
-                        </Field>
-
-                        <div className="grid gap-4 sm:grid-cols-2">
-                          <Field label="优先级">
-                            <Select value={priority} onValueChange={(value) => setPriority(value as TaskPriority)}>
-                              <SelectTrigger className="w-full">
-                                <SelectValue placeholder="选择优先级" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {TASK_PRIORITY_VALUES.map((item) => (
-                                  <SelectItem key={item} value={item}>
-                                    {TASK_PRIORITY_LABELS[item]}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </Field>
-
-                          <Field label="执行意图">
-                            <Select value={intent} onValueChange={(value) => setIntent(value as TaskIntent)}>
-                              <SelectTrigger className="w-full">
-                                <SelectValue placeholder="选择执行意图" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {TASK_INTENT_VALUES.map((item) => (
-                                  <SelectItem key={item} value={item}>
-                                    {TASK_INTENT_LABELS[item]}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </Field>
-                        </div>
-
-                        {submitError ? <p className="text-sm text-destructive">{submitError}</p> : null}
-                      </CardContent>
-                    </Card>
-
+                  <TabsContent value="history">
                     <ArtifactTaskHistory
                       artifactType={selection.node.type}
-                      workspaceSlug={workspaceSlug}
-                      projectSlug={projectSlug}
                       filter={historyFilter}
-                      onFilterChange={setHistoryFilter}
+                      onFilterChange={handleHistoryFilterChange}
                       payload={visibleHistory}
                       isLoading={Boolean(isHistoryLoading)}
                       error={historyError}
                     />
-
-                    {visibleCreatedTask ? (
-                      <Card className="border-primary/20 bg-primary/5">
-                        <CardHeader>
-                          <CardTitle className="text-base">任务已创建</CardTitle>
-                          <CardDescription>
-                            你现在可以直接查看任务详情，或继续在当前项目页浏览来源工件。
-                          </CardDescription>
-                        </CardHeader>
-                        <CardContent className="space-y-4 text-sm">
-                          <div className="grid gap-3 sm:grid-cols-3">
-                            <FeedbackItem label="当前阶段" value={visibleCreatedTask.currentStage} />
-                            <FeedbackItem label="系统正在做什么" value={visibleCreatedTask.currentActivity} />
-                            <FeedbackItem label="下一步预计是什么" value={visibleCreatedTask.nextStep} />
-                          </div>
-                          <div className="flex flex-wrap items-center gap-2">
-                            <Badge>{TASK_STATUS_LABELS[visibleCreatedTask.status]}</Badge>
-                            <Badge variant="outline">任务 ID: {visibleCreatedTask.taskId}</Badge>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    ) : null}
-                  </>
-                ) : null}
+                  </TabsContent>
+                </Tabs>
               </div>
             </ScrollArea>
 

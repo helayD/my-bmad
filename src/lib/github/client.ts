@@ -1,6 +1,8 @@
 import { Octokit } from "@octokit/rest";
 import { throttling } from "@octokit/plugin-throttling";
 import { retry } from "@octokit/plugin-retry";
+import type { Octokit as CoreOctokit } from "@octokit/core";
+import type { EndpointDefaults } from "@octokit/types";
 import { unstable_cache } from "next/cache";
 import { prisma } from "@/lib/db/client";
 import { GitHubTreeResponse } from "./types";
@@ -8,6 +10,7 @@ import { repoTag, fileTag } from "./cache-tags";
 
 // Octokit with throttling and retry plugins
 const OctokitWithPlugins = Octokit.plugin(throttling, retry);
+type ThrottledEndpointOptions = Required<EndpointDefaults>;
 
 /**
  * Create an Octokit instance authenticated with a user's OAuth token.
@@ -16,7 +19,12 @@ export function createUserOctokit(accessToken: string) {
   return new OctokitWithPlugins({
     auth: accessToken,
     throttle: {
-      onRateLimit: (retryAfter: number, options: Record<string, string>, octokit: { log: { warn: (msg: string) => void; info: (msg: string) => void } }, retryCount: number) => {
+      onRateLimit: (
+        retryAfter: number,
+        options: ThrottledEndpointOptions,
+        octokit: CoreOctokit,
+        retryCount: number,
+      ) => {
         octokit.log.warn(
           `Rate limit hit for ${options.method} ${options.url}`
         );
@@ -26,7 +34,11 @@ export function createUserOctokit(accessToken: string) {
         }
         return false;
       },
-      onSecondaryRateLimit: (retryAfter: number, options: Record<string, string>, octokit: { log: { warn: (msg: string) => void } }) => {
+      onSecondaryRateLimit: (
+        retryAfter: number,
+        options: ThrottledEndpointOptions,
+        octokit: CoreOctokit,
+      ) => {
         octokit.log.warn(
           `Secondary rate limit for ${options.method} ${options.url}`
         );
@@ -155,4 +167,3 @@ export function getCachedUserRawContent(
     { revalidate: CACHE_TTL, tags: [repoTag(owner, repo), fileTag(owner, repo, path)] },
   )();
 }
-

@@ -165,6 +165,33 @@ Status: in-progress
     });
   });
 
+  it("preserves projected story stubs with planned status", async () => {
+    const provider = mockProvider(
+      ["_bmad-output/implementation-artifacts/3-1-规划产出故事.md"],
+      {
+        "_bmad-output/implementation-artifacts/3-1-规划产出故事.md": `# Story 3.1: 规划产出故事
+
+Status: planned
+
+## Acceptance Criteria
+1. 规划产出可以进入实现链路。
+
+## Tasks / Subtasks
+- [ ] Task 1: 满足验收标准 1
+`,
+      },
+    );
+
+    const result = await scanProjectArtifacts(provider);
+    const story = result.artifacts.find((artifact) => artifact.type === "STORY");
+
+    expect(story).toBeDefined();
+    expect(story?.metadata).toMatchObject({
+      status: "planned",
+      storyId: "3.1",
+    });
+  });
+
   it("builds hierarchy: Story → Epic via epicId", async () => {
     const provider = mockProvider(
       [

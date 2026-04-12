@@ -32,6 +32,7 @@ export function normalizeStoryStatus(raw: string | undefined): StoryStatus {
   if (s.includes("progress") || s === "started") return "in-progress";
   if (s === "review" || s.includes("review")) return "review";
   if (s === "blocked") return "blocked";
+  if (s === "planned" || s === "plan-ready" || s === "generated") return "planned";
   if (s === "ready-for-dev" || s === "ready") return "ready-for-dev";
   if (s === "backlog" || s === "todo" || s === "pending") return "backlog";
   if (s === "optional") return "backlog";

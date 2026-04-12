@@ -13,6 +13,7 @@ const statusOrder: StoryStatus[] = [
   "review",
   "in-progress",
   "blocked",
+  "planned",
   "backlog",
   "unknown",
 ];
@@ -25,7 +26,7 @@ export function SprintSummaryCard({
       <Card className="glass-card">
         <CardContent className="flex items-center gap-3 p-6 text-muted-foreground">
           <Info className="h-5 w-5 shrink-0" />
-          <span>No sprint defined</span>
+          <span>当前还没有冲刺信息</span>
         </CardContent>
       </Card>
     );
@@ -64,9 +65,9 @@ export function SprintSummaryCard({
     <Card className="glass-card">
       <CardHeader>
         <div className="flex items-center justify-between">
-          <CardTitle className="text-lg">
-            Sprint: {sprintStatus.sprint || "Current"}
-          </CardTitle>
+            <CardTitle className="text-lg">
+            冲刺：{sprintStatus.sprint || "当前冲刺"}
+            </CardTitle>
           {(sprintStatus.startDate || sprintStatus.endDate) && (
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <Calendar className="h-3.5 w-3.5" />
@@ -84,10 +85,10 @@ export function SprintSummaryCard({
         <div className="flex items-center justify-between">
           <div className="space-y-1">
             <p className="text-sm text-muted-foreground">
-              Status: {sprintStatus.status || "Active"}
+              状态：{sprintStatus.status || "进行中"}
             </p>
             <p className="text-sm text-muted-foreground">
-              {sprintDone}/{sprintTotal} stories completed
+              已完成 {sprintDone}/{sprintTotal} 个 Story
             </p>
           </div>
           <ProgressRing percent={sprintPercent} size={64} strokeWidth={5} />
@@ -95,7 +96,7 @@ export function SprintSummaryCard({
 
         {/* Status breakdown */}
         <div className="space-y-2">
-          <p className="text-sm font-medium">Status breakdown</p>
+          <p className="text-sm font-medium">状态分布</p>
           <div className="flex flex-wrap gap-2">
             {statusOrder
               .filter((status) => byStatus.has(status))
@@ -116,7 +117,7 @@ export function SprintSummaryCard({
         {/* Breakdown par epic */}
         {sortedEpics.length > 0 && (
           <div className="space-y-2">
-            <p className="text-sm font-medium">Progress by epic</p>
+            <p className="text-sm font-medium">按 Epic 查看进度</p>
             <div className="space-y-2">
               {sortedEpics.map(([epicId, data]) => {
                 const percent =

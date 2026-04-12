@@ -534,16 +534,22 @@ const isGroupLevelField = <T = unknown,>(
 const flattenFields = <T = unknown,>(
   fields: FilterFieldsConfig<T>
 ): FilterFieldConfig<T>[] => {
-  return fields.reduce<FilterFieldConfig<T>[]>((acc, item) => {
+  const flattened: FilterFieldConfig<T>[] = []
+
+  for (const item of fields) {
     if (isFieldGroup(item)) {
-      return [...acc, ...item.fields]
+      flattened.push(...item.fields)
+      continue
     }
     // Handle group-level fields (new structure)
     if (isGroupLevelField(item)) {
-      return [...acc, ...item.fields!]
+      flattened.push(...item.fields!)
+      continue
     }
-    return [...acc, item]
-  }, [])
+    flattened.push(item)
+  }
+
+  return flattened
 }
 
 const getFieldsMap = <T = unknown,>(
