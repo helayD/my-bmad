@@ -2,7 +2,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { getProjectBySlug, getProjectArtifacts } from "@/lib/db/helpers";
-import { getRecentPlanningRequestsByProjectId } from "@/lib/planning/queries";
+import { getPlanningRequestsByProjectId } from "@/lib/planning/queries";
+import { parsePlanningStatusFilter } from "@/lib/planning/types";
 import { guardWorkspacePage } from "@/lib/workspace/page-guard";
 import { fetchBmadFiles } from "@/actions/repo-actions";
 import { Badge } from "@/components/ui/badge";
@@ -77,7 +78,11 @@ async function ArtifactTreeSection({
 
 interface ProjectPageProps {
   params: Promise<{ slug: string; projectSlug: string }>;
-  searchParams: Promise<{ artifactId?: string }>;
+  searchParams: Promise<{
+    artifactId?: string;
+    planningStatus?: string;
+    planningRequestId?: string;
+  }>;
 }
 
 const statusVariant: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
@@ -88,13 +93,14 @@ const statusVariant: Record<string, "default" | "secondary" | "destructive" | "o
 
 export default async function ProjectPage({ params, searchParams }: ProjectPageProps) {
   const { slug, projectSlug } = await params;
-  const { artifactId } = await searchParams;
+  const { artifactId, planningStatus: rawPlanningStatus, planningRequestId } = await searchParams;
+  const planningStatus = parsePlanningStatusFilter(rawPlanningStatus);
 
   const { workspace } = await guardWorkspacePage(slug);
 
   const project = await getProjectBySlug(workspace.id, projectSlug);
   if (!project) notFound();
-  const planningRequests = await getRecentPlanningRequestsByProjectId(project.id);
+  const planningRequests = await getPlanningRequestsByProjectId(project.id, planningStatus);
 
   let fileTree: FileTreeNode[] | null = null;
   if (project.repo) {
@@ -173,8 +179,12 @@ export default async function ProjectPage({ params, searchParams }: ProjectPageP
 
       <PlanningRequestComposer
         workspaceId={workspace.id}
+        workspaceSlug={slug}
         projectId={project.id}
+        projectSlug={projectSlug}
         initialRequests={planningRequests}
+        initialPlanningStatus={planningStatus}
+        initialPlanningRequestId={planningRequestId ?? null}
         hasRepo={Boolean(project.repo)}
       />
 

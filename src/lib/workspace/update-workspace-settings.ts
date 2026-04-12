@@ -8,6 +8,7 @@ export const DEFAULT_GOVERNANCE_SETTINGS: WorkspaceGovernanceSettingsInput = {
   maxConcurrentTasks: 5,
   autoRecoveryEnabled: true,
   requireApprovalBeforeExecution: false,
+  autoDispatchAfterPlanning: false,
 };
 
 export async function getGovernanceSettings(

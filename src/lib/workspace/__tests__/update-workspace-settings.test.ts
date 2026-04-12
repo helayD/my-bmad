@@ -95,6 +95,7 @@ describe("updateWorkspaceSettings (integration)", () => {
       maxConcurrentTasks: 10,
       autoRecoveryEnabled: false,
       requireApprovalBeforeExecution: true,
+      autoDispatchAfterPlanning: true,
     };
 
     const updated = await updateWorkspaceSettings({
@@ -121,6 +122,9 @@ describe("updateWorkspaceSettings (integration)", () => {
     expect(settings.autoRecoveryEnabled).toBe(DEFAULT_GOVERNANCE_SETTINGS.autoRecoveryEnabled);
     expect(settings.requireApprovalBeforeExecution).toBe(
       DEFAULT_GOVERNANCE_SETTINGS.requireApprovalBeforeExecution
+    );
+    expect(settings.autoDispatchAfterPlanning).toBe(
+      DEFAULT_GOVERNANCE_SETTINGS.autoDispatchAfterPlanning
     );
   });
 

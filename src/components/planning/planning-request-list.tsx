@@ -3,15 +3,15 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
+  canConfirmPlanningRequest,
   canExecutePlanningRequest,
   canRetryPlanningExecution,
-  getPlanningArtifactSyncStatusLabel,
-  getPlanningExecutionStepBadgeVariant,
-  getPlanningExecutionStepStatusLabel,
+  getPlanningHandoffDispatchModeLabel,
   getPlanningRequestBadgeVariant,
   getPlanningRequestCreatorLabel,
   getPlanningRequestRouteLabel,
   getPlanningRequestStatusLabel,
+  resolvePlanningRequestProblemSummary,
   type PlanningRequestListItem,
 } from "@/lib/planning/types";
 
@@ -19,23 +19,29 @@ interface PlanningRequestListProps {
   requests: PlanningRequestListItem[];
   hasRepo?: boolean;
   isPending?: boolean;
+  selectedRequestId?: string | null;
+  onOpenDetail?: (request: PlanningRequestListItem) => void;
   onResolveAnalysis?: (request: PlanningRequestListItem) => void;
   onExecutePlanning?: (request: PlanningRequestListItem) => void;
+  onOpenHandoff?: (request: PlanningRequestListItem) => void;
 }
 
 export function PlanningRequestList({
   requests,
   hasRepo = true,
   isPending = false,
+  selectedRequestId = null,
+  onOpenDetail,
   onResolveAnalysis,
   onExecutePlanning,
+  onOpenHandoff,
 }: PlanningRequestListProps) {
   if (requests.length === 0) {
     return (
       <Card>
         <CardContent className="space-y-2 p-6 text-sm text-muted-foreground">
-          <p className="font-medium text-foreground">还没有规划请求</p>
-          <p>输入一句目标后，系统会先创建请求，再展示当前阶段、预估进度和下一步动作。</p>
+          <p className="font-medium text-foreground">当前筛选下还没有规划请求</p>
+          <p>你可以切换状态筛选，或直接提交新的目标，让系统开始分析这条规划请求。</p>
         </CardContent>
       </Card>
     );
@@ -44,280 +50,185 @@ export function PlanningRequestList({
   return (
     <div className="space-y-3">
       {requests.map((request) => {
-        const statusLabel = getPlanningRequestStatusLabel(request.status);
-        const creatorLabel = getPlanningRequestCreatorLabel(request.createdByUser);
-        const createdAt = formatPlanningRequestDateTime(request.createdAt);
-        const analyzedAt = request.analyzedAt
-          ? formatPlanningRequestDateTime(request.analyzedAt)
-          : null;
-        const routeLabel = request.routeType ? getPlanningRequestRouteLabel(request.routeType) : "等待识别";
+        const problem = resolvePlanningRequestProblemSummary(request);
         const selectedAgents = request.selectedAgentKeys.map(getPlanningAgentShortLabel);
         const selectedSkills = request.selectedSkillKeys.map(getPlanningSkillShortLabel);
-        const executionSteps = request.executionSteps ?? [];
-        const artifactSummary = request.artifactSummary ?? [];
-        const failedStep = executionSteps.find((step) => step.status === "failed") ?? null;
-        const hasExecutionFailure = request.status === "failed" && failedStep !== null;
-        const failureSummary = hasExecutionFailure
-          ? failedStep.errorMessage ?? request.nextStep
-          : request.selectionReasonSummary ?? request.nextStep;
-        const executionAwareRequest = {
-          ...request,
-          executionSteps,
-        };
-        const canExecute = hasRepo && canExecutePlanningRequest(executionAwareRequest);
-        const canRetryExecution = hasRepo && canRetryPlanningExecution(executionAwareRequest);
-        const showExecuteAction = canExecute && onExecutePlanning;
-        const showExecutionSummary =
-          executionSteps.length > 0 || artifactSummary.length > 0;
+        const lastStep = request.executionSteps.at(-1) ?? null;
+        const canExecute = hasRepo && canExecutePlanningRequest(request);
+        const canRetryExecution = hasRepo && canRetryPlanningExecution(request);
+        const canConfirm = canConfirmPlanningRequest(request);
 
         return (
-          <Card key={request.id}>
+          <Card
+            key={request.id}
+            className={selectedRequestId === request.id ? "border-primary/40 shadow-sm" : undefined}
+          >
             <CardHeader className="gap-3 pb-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <CardTitle className="text-base font-semibold">{request.rawGoal}</CardTitle>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge variant="outline">{routeLabel}</Badge>
-                  <Badge variant={getPlanningRequestBadgeVariant(request.status)}>{statusLabel}</Badge>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="space-y-1">
+                  <CardTitle className="text-base font-semibold">{request.rawGoal}</CardTitle>
+                  <div className="flex flex-wrap gap-3 text-sm text-muted-foreground">
+                    <span>创建人：{getPlanningRequestCreatorLabel(request.createdByUser)}</span>
+                    <span>创建时间：{formatPlanningRequestDateTime(request.createdAt)}</span>
+                  </div>
                 </div>
-              </div>
-              <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
-                <span>创建人：{creatorLabel}</span>
-                <span>创建时间：{createdAt}</span>
-                {analyzedAt ? <span>分析时间：{analyzedAt}</span> : null}
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant="outline">
+                    {request.routeType ? getPlanningRequestRouteLabel(request.routeType) : "等待识别"}
+                  </Badge>
+                  <Badge variant={getPlanningRequestBadgeVariant(request.status)}>
+                    {getPlanningRequestStatusLabel(request.status)}
+                  </Badge>
+                  {problem ? (
+                    <Badge variant={problem.severity === "critical" ? "destructive" : "secondary"}>
+                      {problem.title}
+                    </Badge>
+                  ) : null}
+                </div>
               </div>
             </CardHeader>
+
             <CardContent className="space-y-3">
-              <div className="space-y-2">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="font-medium text-foreground">预估进度</span>
-                  <span>{request.progressPercent}%</span>
-                </div>
-                <div
-                  role="progressbar"
-                  aria-label={`${statusLabel}，预估进度 ${request.progressPercent}%`}
-                  aria-valuenow={request.progressPercent}
-                  aria-valuemin={0}
-                  aria-valuemax={100}
-                  className="h-2 rounded-full bg-muted"
+              <div className="grid gap-3 md:grid-cols-3">
+                <SummaryStat label="产出工件" value={`${request.generatedArtifactCount}`} />
+                <SummaryStat label="衍生任务" value={`${request.derivedTaskCount}`} />
+                <SummaryStat label="暂不执行" value={`${request.deferredArtifactCount}`} />
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-2">
+                <SummaryPanel
+                  label="选择理由"
+                  value={request.selectionReasonSummary ?? "系统正在判断这条请求应进入哪条链路。"}
+                />
+                <SummaryPanel label="下一步" value={request.nextStep} />
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-2">
+                <TagPanel
+                  label="已选 PM Agent"
+                  emptyText="当前无需 PM Agent"
+                  values={selectedAgents}
+                />
+                <TagPanel
+                  label="Skill 序列"
+                  emptyText="当前无需 BMAD Skills"
+                  values={selectedSkills}
+                />
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-2">
+                <SummaryPanel
+                  label="当前链路"
+                  value={
+                    request.routeType === "direct-execution"
+                      ? "此请求跳过 BMAD 规划，当前只保留执行 handoff 草稿与准备状态。"
+                      : lastStep
+                        ? `${lastStep.title} · ${lastStep.errorMessage ?? lastStep.outputSummary ?? request.nextStep}`
+                        : request.taskHandoffSummary
+                          ? `${getPlanningHandoffDispatchModeLabel(request.taskHandoffSummary.dispatchMode)} · 已进入执行准备，尚未开始编码。`
+                          : "当前还没有更细粒度的步骤记录。"
+                  }
+                />
+                <SummaryPanel
+                  label="问题环节 / 建议动作"
+                  value={problem ? `${problem.reason} 建议动作：${problem.nextAction}` : "当前没有需要特别高亮的问题环节。"}
+                />
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant={selectedRequestId === request.id ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => onOpenDetail?.(request)}
+                  disabled={isPending}
                 >
-                  <div
-                    className="h-2 rounded-full bg-primary transition-all"
-                    style={{ width: `${Math.max(0, Math.min(request.progressPercent, 100))}%` }}
-                  />
-                </div>
+                  查看链路详情
+                </Button>
+
+                {onOpenHandoff && canConfirm ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => onOpenHandoff(request)}
+                    disabled={isPending}
+                  >
+                    确认并生成执行任务
+                  </Button>
+                ) : null}
+
+                {onExecutePlanning && canExecute ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => onExecutePlanning(request)}
+                    disabled={isPending}
+                  >
+                    {canRetryExecution ? "重试失败步骤" : "执行规划"}
+                  </Button>
+                ) : null}
+
+                {onResolveAnalysis && (request.status === "analyzing" || request.status === "failed") ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => onResolveAnalysis(request)}
+                    disabled={isPending}
+                  >
+                    {request.status === "failed" ? "重新分析" : "继续分析"}
+                  </Button>
+                ) : null}
               </div>
-
-              <div className="grid gap-3 md:grid-cols-2">
-                <div className="space-y-1 text-sm">
-                  <p className="font-medium text-foreground">选择理由</p>
-                  <p className="text-muted-foreground">
-                    {request.selectionReasonSummary ?? "系统正在判定是否需要先进入规划链路。"}
-                  </p>
-                </div>
-
-                <div className="space-y-1 text-sm">
-                  <p className="font-medium text-foreground">下一步</p>
-                  <p className="text-muted-foreground">{request.nextStep}</p>
-                </div>
-              </div>
-
-              <div className="grid gap-3 md:grid-cols-2">
-                <div className="space-y-1 text-sm">
-                  <p className="font-medium text-foreground">已选 PM Agent</p>
-                  <div className="flex flex-wrap gap-2">
-                    {selectedAgents.length > 0 ? (
-                      selectedAgents.map((agent) => (
-                        <Badge key={agent} variant="secondary">
-                          {agent}
-                        </Badge>
-                      ))
-                    ) : (
-                      <span className="text-muted-foreground">当前无需 PM Agent</span>
-                    )}
-                  </div>
-                </div>
-
-                <div className="space-y-1 text-sm">
-                  <p className="font-medium text-foreground">Skill 序列</p>
-                  <div className="flex flex-wrap gap-2">
-                    {selectedSkills.length > 0 ? (
-                      selectedSkills.map((skill) => (
-                        <Badge key={skill} variant="secondary">
-                          {skill}
-                        </Badge>
-                      ))
-                    ) : (
-                      <span className="text-muted-foreground">当前无需 BMAD Skills</span>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {request.routeType === "planning" ? (
-                <div className="rounded-lg border border-border/70 bg-muted/20 p-3">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="space-y-1 text-sm">
-                      <p className="font-medium text-foreground">规划执行</p>
-                      <p className="text-muted-foreground">
-                        {hasRepo
-                          ? "系统会按已选 Skill 顺序生成工件，并在每一步完成后同步 BMAD artifact 真值。"
-                          : "当前项目尚未关联仓库，只能先分析规划意图；生成工件前需要先关联仓库。"}
-                      </p>
-                    </div>
-                    {showExecuteAction ? (
-                      <Button
-                        type="button"
-                        size="sm"
-                        onClick={() => onExecutePlanning(request)}
-                        disabled={isPending}
-                      >
-                        {canRetryExecution ? "重试失败步骤" : "执行规划"}
-                      </Button>
-                    ) : null}
-                  </div>
-                </div>
-              ) : null}
-
-              {request.routeType === "direct-execution" ? (
-                <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 text-sm text-foreground">
-                  此请求将跳过 BMAD 规划，进入执行链准备阶段。当前只会保存执行 handoff 草稿，不会直接宣称已开始编码。
-                </div>
-              ) : null}
-
-              {showExecutionSummary ? (
-                <div className="space-y-3 rounded-lg border border-border/70 p-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="text-sm font-medium text-foreground">步骤状态</p>
-                    {request.generatedArtifactCount > 0 ? (
-                      <span className="text-xs text-muted-foreground">
-                        已生成 {request.generatedArtifactCount} 个工件
-                      </span>
-                    ) : null}
-                  </div>
-
-                  {executionSteps.length > 0 ? (
-                    <div className="space-y-2">
-                      {executionSteps.map((step) => (
-                        <div
-                          key={step.id}
-                          className="rounded-md border border-border/60 bg-background/70 p-3"
-                        >
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <div className="space-y-1">
-                              <p className="text-sm font-medium text-foreground">{step.title}</p>
-                              <p className="text-xs text-muted-foreground">{step.stepKey}</p>
-                            </div>
-                            <Badge variant={getPlanningExecutionStepBadgeVariant(step.status)}>
-                              {getPlanningExecutionStepStatusLabel(step.status)}
-                            </Badge>
-                          </div>
-                          {step.outputSummary ? (
-                            <p className="mt-2 text-sm text-muted-foreground">{step.outputSummary}</p>
-                          ) : null}
-                          {step.errorMessage ? (
-                            <p className="mt-2 text-sm text-destructive">{step.errorMessage}</p>
-                          ) : null}
-                          {step.artifactPaths.length > 0 ? (
-                            <div className="mt-2 flex flex-wrap gap-2">
-                              {step.artifactPaths.map((artifactPath) => (
-                                <Badge key={artifactPath} variant="outline" className="font-mono text-[11px]">
-                                  {artifactPath}
-                                </Badge>
-                              ))}
-                            </div>
-                          ) : null}
-                        </div>
-                      ))}
-                    </div>
-                  ) : null}
-
-                  {artifactSummary.length > 0 ? (
-                    <div className="space-y-2">
-                      <p className="text-sm font-medium text-foreground">产出摘要</p>
-                      <div className="space-y-2">
-                        {artifactSummary.map((artifact) => (
-                          <div
-                            key={artifact.path}
-                            className="rounded-md border border-border/60 bg-background/70 p-3 text-sm"
-                          >
-                            <div className="flex flex-wrap items-center justify-between gap-2">
-                              <p className="font-medium text-foreground">{artifact.title}</p>
-                              <Badge variant="outline">
-                                {getPlanningArtifactSyncStatusLabel(artifact.status)}
-                              </Badge>
-                            </div>
-                            <p className="mt-1 text-muted-foreground">{artifact.summary}</p>
-                            <p className="mt-2 font-mono text-[11px] text-muted-foreground">
-                              {artifact.path}
-                            </p>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ) : null}
-                </div>
-              ) : null}
-
-              {request.status === "failed" && !hasExecutionFailure ? (
-                <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
-                  <p>{failureSummary}</p>
-                  {onResolveAnalysis ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="mt-3"
-                      onClick={() => onResolveAnalysis(request)}
-                      disabled={isPending}
-                    >
-                      重新分析
-                    </Button>
-                  ) : null}
-                </div>
-              ) : null}
-
-              {hasExecutionFailure ? (
-                <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
-                  <p>{failureSummary}</p>
-                  <p className="mt-1 text-xs text-destructive/80">
-                    已保留此前成功生成的工件。你可以重试失败步骤，或调整目标后重新提交新的规划请求。
-                  </p>
-                  {showExecuteAction ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="mt-3"
-                      onClick={() => onExecutePlanning(request)}
-                      disabled={isPending}
-                    >
-                      重试失败步骤
-                    </Button>
-                  ) : null}
-                </div>
-              ) : null}
-
-              {request.status === "analyzing" ? (
-                <div className="rounded-lg border border-dashed p-3 text-sm text-muted-foreground">
-                  <p>如果分析长时间没有推进，可以手动继续分析，避免请求停留在“分析中”。</p>
-                  {onResolveAnalysis ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="mt-3"
-                      onClick={() => onResolveAnalysis(request)}
-                      disabled={isPending}
-                    >
-                      继续分析
-                    </Button>
-                  ) : null}
-                </div>
-              ) : null}
             </CardContent>
           </Card>
         );
       })}
+    </div>
+  );
+}
+
+function SummaryStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-border/70 bg-background/80 p-3">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="mt-1 text-lg font-semibold text-foreground">{value}</p>
+    </div>
+  );
+}
+
+function SummaryPanel({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-border/70 bg-muted/10 p-3 text-sm">
+      <p className="font-medium text-foreground">{label}</p>
+      <p className="mt-1 text-muted-foreground">{value}</p>
+    </div>
+  );
+}
+
+function TagPanel({
+  label,
+  values,
+  emptyText,
+}: {
+  label: string;
+  values: string[];
+  emptyText: string;
+}) {
+  return (
+    <div className="rounded-lg border border-border/70 bg-muted/10 p-3 text-sm">
+      <p className="font-medium text-foreground">{label}</p>
+      <div className="mt-2 flex flex-wrap gap-2">
+        {values.length > 0 ? (
+          values.map((value) => (
+            <Badge key={value} variant="secondary">
+              {value}
+            </Badge>
+          ))
+        ) : (
+          <span className="text-muted-foreground">{emptyText}</span>
+        )}
+      </div>
     </div>
   );
 }

@@ -1,4 +1,9 @@
 import { z } from "zod";
+import {
+  TASK_INTENT_VALUES,
+  TASK_PRIORITY_VALUES,
+  TASK_STATUS_VALUES,
+} from "@/lib/tasks/types";
 
 export const PLANNING_REQUEST_ROUTE_VALUES = ["planning", "direct-execution"] as const;
 export const planningRequestRouteSchema = z.enum(PLANNING_REQUEST_ROUTE_VALUES);
@@ -31,6 +36,14 @@ export const PLANNING_REQUEST_STAGE_ORDER = [...PLANNING_REQUEST_STATUS_VALUES];
 
 export const planningRequestStatusSchema = z.enum(PLANNING_REQUEST_STATUS_VALUES);
 export type PlanningRequestStatus = z.infer<typeof planningRequestStatusSchema>;
+
+export const PLANNING_STATUS_FILTER_VALUES = [
+  "all",
+  ...PLANNING_REQUEST_STATUS_VALUES,
+] as const;
+
+export const planningStatusFilterSchema = z.enum(PLANNING_STATUS_FILTER_VALUES);
+export type PlanningStatusFilter = z.infer<typeof planningStatusFilterSchema>;
 
 export const PLANNING_EXECUTION_STEP_STATUS_VALUES = [
   "pending",
@@ -78,6 +91,7 @@ export const DEFAULT_PLANNING_ROUTE_NEXT_STEP = "已进入规划链路，下一�
 export const DEFAULT_PLANNING_EXECUTION_NEXT_STEP = "可以开始执行规划，系统将按选定的 Skills 依次生成 BMAD 工件。";
 export const DEFAULT_PLANNING_CONFIRMATION_NEXT_STEP = "规划产出已生成，可查看摘要、编辑工件并确认后进入后续执行链路。";
 export const DEFAULT_PLANNING_REQUEST_LIMIT = 5;
+const PLANNING_ANALYSIS_STALL_THRESHOLD_MS = 5 * 60 * 1000;
 
 type BadgeVariant = "default" | "secondary" | "destructive" | "outline";
 
@@ -155,6 +169,16 @@ export const PLANNING_REQUEST_ROUTE_LABELS: Record<PlanningRequestRoute, string>
   "direct-execution": "直接进入执行",
 };
 
+export const PLANNING_STATUS_FILTER_LABELS: Record<PlanningStatusFilter, string> = {
+  all: "全部",
+  analyzing: "分析中",
+  planning: "规划中",
+  "execution-ready": "待进入执行",
+  "awaiting-confirmation": "待确认",
+  completed: "已完成",
+  failed: "已失败",
+};
+
 export const PLANNING_ARTIFACT_SYNC_STATUS_LABELS: Record<
   PlanningArtifactSyncStatus,
   string
@@ -215,6 +239,103 @@ export type PlanningExecutionHandoffDraft = z.infer<
   typeof planningExecutionHandoffDraftSchema
 >;
 
+export const PLANNING_HANDOFF_DISPATCH_MODE_VALUES = ["manual", "auto"] as const;
+export const planningHandoffDispatchModeSchema = z.enum(
+  PLANNING_HANDOFF_DISPATCH_MODE_VALUES,
+);
+export type PlanningHandoffDispatchMode = z.infer<typeof planningHandoffDispatchModeSchema>;
+
+export const PLANNING_HANDOFF_READY_STATE_VALUES = [
+  "manual",
+  "auto-ready",
+  "approval-required",
+] as const;
+export const planningHandoffReadyStateSchema = z.enum(
+  PLANNING_HANDOFF_READY_STATE_VALUES,
+);
+export type PlanningHandoffReadyState = z.infer<typeof planningHandoffReadyStateSchema>;
+
+export const planningHandoffCandidateTaskSchema = z.object({
+  artifactId: z.string().min(1),
+  artifactName: z.string().min(1),
+  filePath: z.string().min(1),
+  storyArtifactId: z.string().min(1),
+  storyTitle: z.string().min(1),
+  storyFilePath: z.string().min(1),
+  order: z.number().int().min(1),
+});
+
+export type PlanningHandoffCandidateTask = z.infer<typeof planningHandoffCandidateTaskSchema>;
+
+export const planningHandoffStoryGroupSchema = z.object({
+  storyArtifactId: z.string().min(1),
+  storyTitle: z.string().min(1),
+  storyFilePath: z.string().min(1),
+  storyId: z.string().nullable(),
+  tasks: z.array(planningHandoffCandidateTaskSchema),
+});
+
+export type PlanningHandoffStoryGroup = z.infer<typeof planningHandoffStoryGroupSchema>;
+
+export const planningHandoffPreviewSchema = z.object({
+  planningRequestId: z.string().min(1),
+  dispatchMode: planningHandoffDispatchModeSchema,
+  approvalRequired: z.boolean(),
+  candidateTaskCount: z.number().int().min(0),
+  storyCount: z.number().int().min(0),
+  groups: z.array(planningHandoffStoryGroupSchema),
+});
+
+export type PlanningHandoffPreview = z.infer<typeof planningHandoffPreviewSchema>;
+
+export const planningHandoffCreatedTaskSchema = z.object({
+  taskId: z.string().min(1),
+  taskTitle: z.string().min(1),
+  sourceArtifactId: z.string().min(1),
+  sourceArtifactName: z.string().min(1),
+  sourceArtifactPath: z.string().min(1),
+  storyArtifactId: z.string().min(1),
+  storyTitle: z.string().min(1),
+  priority: z.enum(TASK_PRIORITY_VALUES),
+  intent: z.enum(TASK_INTENT_VALUES),
+  status: z.enum(TASK_STATUS_VALUES),
+  currentStage: z.string().min(1),
+  nextStep: z.string().min(1),
+  queuePosition: z.number().int().min(1),
+  readyState: planningHandoffReadyStateSchema,
+});
+
+export type PlanningHandoffCreatedTask = z.infer<typeof planningHandoffCreatedTaskSchema>;
+
+export const planningHandoffDeferredArtifactSchema = z.object({
+  artifactId: z.string().min(1),
+  artifactType: z.enum(["STORY", "TASK"]),
+  artifactName: z.string().min(1),
+  filePath: z.string().min(1),
+  storyArtifactId: z.string().min(1),
+  storyTitle: z.string().min(1),
+  deferredBy: z.enum(["story", "task"]),
+});
+
+export type PlanningHandoffDeferredArtifact = z.infer<
+  typeof planningHandoffDeferredArtifactSchema
+>;
+
+export const planningTaskHandoffSummarySchema = z.object({
+  source: z.literal("planning-request-handoff"),
+  confirmedAt: z.string().datetime(),
+  dispatchMode: planningHandoffDispatchModeSchema,
+  approvalRequired: z.boolean(),
+  candidateTaskCount: z.number().int().min(0),
+  createdTaskCount: z.number().int().min(0),
+  deferredArtifactCount: z.number().int().min(0),
+  deduplicatedTaskCount: z.number().int().min(0),
+  createdTasks: z.array(planningHandoffCreatedTaskSchema),
+  deferredArtifacts: z.array(planningHandoffDeferredArtifactSchema),
+});
+
+export type PlanningTaskHandoffSummary = z.infer<typeof planningTaskHandoffSummarySchema>;
+
 export const planningArtifactSummaryItemSchema = z.object({
   path: z.string().min(1),
   title: z.string().min(1),
@@ -262,13 +383,73 @@ export interface PlanningRequestListItem {
   executionStartedAt: string | null;
   executionCompletedAt: string | null;
   executionFailedAt: string | null;
+  confirmedAt: string | null;
   lastExecutionErrorCode: string | null;
   generatedArtifactCount: number;
+  derivedTaskCount: number;
+  deferredArtifactCount: number;
   artifactSummary: PlanningArtifactSummaryItem[];
   executionSteps: PlanningExecutionStepListItem[];
   executionHandoffDraft: PlanningExecutionHandoffDraft | null;
+  taskHandoffSummary: PlanningTaskHandoffSummary | null;
   createdAt: string;
+  updatedAt?: string;
   createdByUser: PlanningRequestActor;
+}
+
+export type PlanningRequestProblemStage =
+  | "analysis-stalled"
+  | "analysis-failed"
+  | "execution-failed"
+  | "awaiting-confirmation"
+  | "execution-ready";
+
+export type PlanningRequestProblemSeverity = "info" | "warning" | "critical";
+
+export interface PlanningRequestProblemSummary {
+  stage: PlanningRequestProblemStage;
+  severity: PlanningRequestProblemSeverity;
+  title: string;
+  reason: string;
+  nextAction: string;
+}
+
+export interface PlanningArtifactLinkView extends PlanningArtifactSummaryItem {
+  artifactId: string | null;
+  artifactName: string | null;
+}
+
+export interface PlanningDerivedTaskLinkView {
+  taskId: string;
+  title: string;
+  status: string;
+  currentStage: string;
+  nextStep: string;
+  queuePosition: number | null;
+  readyState: PlanningHandoffReadyState | null;
+  sourceArtifactId: string | null;
+  sourceArtifactName: string;
+  sourceArtifactPath: string;
+  storyArtifactId: string | null;
+  storyTitle: string | null;
+  isLegacyPending: boolean;
+}
+
+export interface PlanningDeferredArtifactView {
+  artifactId: string;
+  artifactName: string;
+  filePath: string;
+  storyTitle: string;
+  deferredBy: "story" | "task";
+  sourceArtifactId: string | null;
+}
+
+export interface PlanningRequestDetailView {
+  request: PlanningRequestListItem;
+  problem: PlanningRequestProblemSummary | null;
+  artifacts: PlanningArtifactLinkView[];
+  derivedTasks: PlanningDerivedTaskLinkView[];
+  deferredArtifacts: PlanningDeferredArtifactView[];
 }
 
 export interface PlanningIntentAnalysisInput {
@@ -305,6 +486,15 @@ export type PlanningGoalValidationResult =
 
 export function getPlanningRequestStatusLabel(status: PlanningRequestStatus): string {
   return PLANNING_REQUEST_STATUS_META[status].label;
+}
+
+export function getPlanningStatusFilterLabel(status: PlanningStatusFilter): string {
+  return PLANNING_STATUS_FILTER_LABELS[status];
+}
+
+export function parsePlanningStatusFilter(value: unknown): PlanningStatusFilter {
+  const parsed = planningStatusFilterSchema.safeParse(value);
+  return parsed.success ? parsed.data : "all";
 }
 
 export function getPlanningRequestDefaultProgress(status: PlanningRequestStatus): number {
@@ -390,6 +580,13 @@ export function getPlanningRequestCreatorLabel(actor: PlanningRequestActor): str
   return actor.name?.trim() || actor.email;
 }
 
+export function doesPlanningRequestMatchStatusFilter(
+  request: Pick<PlanningRequestListItem, "status">,
+  filter: PlanningStatusFilter,
+): boolean {
+  return filter === "all" || request.status === filter;
+}
+
 export function parsePlanningExecutionHandoffDraft(
   value: unknown,
 ): PlanningExecutionHandoffDraft | null {
@@ -402,6 +599,20 @@ export function parsePlanningArtifactSummary(
 ): PlanningArtifactSummaryItem[] {
   const parsed = z.array(planningArtifactSummaryItemSchema).safeParse(value);
   return parsed.success ? parsed.data : [];
+}
+
+export function parsePlanningHandoffPreview(
+  value: unknown,
+): PlanningHandoffPreview | null {
+  const parsed = planningHandoffPreviewSchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
+}
+
+export function parsePlanningTaskHandoffSummary(
+  value: unknown,
+): PlanningTaskHandoffSummary | null {
+  const parsed = planningTaskHandoffSummarySchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
 }
 
 export function parsePlanningExecutionSteps(
@@ -444,6 +655,131 @@ export function canExecutePlanningRequest(
   }
 
   return request.status === "planning" || canRetryPlanningExecution(request);
+}
+
+export function canConfirmPlanningRequest(
+  request: Pick<PlanningRequestListItem, "status" | "routeType">,
+): boolean {
+  return request.routeType === "planning" && request.status === "awaiting-confirmation";
+}
+
+export function resolvePlanningRequestProblemSummary(
+  request: Pick<
+    PlanningRequestListItem,
+    | "status"
+    | "createdAt"
+    | "updatedAt"
+    | "routeType"
+    | "nextStep"
+    | "selectionReasonSummary"
+    | "executionSteps"
+    | "derivedTaskCount"
+    | "taskHandoffSummary"
+  >,
+): PlanningRequestProblemSummary | null {
+  const failedStep = request.executionSteps.find((step) => step.status === "failed") ?? null;
+
+  if (request.status === "failed" && failedStep) {
+    return {
+      stage: "execution-failed",
+      severity: "critical",
+      title: `失败步骤：${failedStep.title}`,
+      reason: failedStep.errorMessage ?? request.nextStep,
+      nextAction: "重试失败步骤",
+    };
+  }
+
+  if (request.status === "failed") {
+    return {
+      stage: "analysis-failed",
+      severity: "critical",
+      title: "分析阶段失败",
+      reason: request.selectionReasonSummary ?? request.nextStep,
+      nextAction: "重新分析",
+    };
+  }
+
+  if (request.status === "analyzing") {
+    if (!hasPlanningAnalysisStalled(request.updatedAt ?? request.createdAt)) {
+      return null;
+    }
+
+    return {
+      stage: "analysis-stalled",
+      severity: "warning",
+      title: "分析尚未推进",
+      reason: request.nextStep,
+      nextAction: "继续分析",
+    };
+  }
+
+  if (request.status === "awaiting-confirmation") {
+    return {
+      stage: "awaiting-confirmation",
+      severity: "warning",
+      title: "等待确认规划结果",
+      reason: request.nextStep,
+      nextAction: "确认规划结果",
+    };
+  }
+
+  if (request.status === "execution-ready") {
+    const createdTaskCount =
+      request.taskHandoffSummary?.createdTaskCount ?? request.derivedTaskCount;
+    const reason = request.routeType === "direct-execution"
+      ? "此请求跳过了 BMAD 规划，当前仅进入执行准备态，尚未开始编码。"
+      : createdTaskCount > 0
+        ? `已进入执行准备态，当前可见 ${createdTaskCount} 个衍生任务，但尚未开始编码。`
+        : "已进入执行准备态，但当前还没有可见的衍生任务记录，仍未开始编码。";
+
+    return {
+      stage: "execution-ready",
+      severity: "info",
+      title: request.routeType === "direct-execution" ? "直接进入执行准备" : "已衔接到执行准备",
+      reason,
+      nextAction: "查看执行准备",
+    };
+  }
+
+  return null;
+}
+
+function hasPlanningAnalysisStalled(referenceTime: string): boolean {
+  const parsed = Date.parse(referenceTime);
+  if (Number.isNaN(parsed)) {
+    return false;
+  }
+
+  return Date.now() - parsed >= PLANNING_ANALYSIS_STALL_THRESHOLD_MS;
+}
+
+export const PLANNING_HANDOFF_DISPATCH_MODE_LABELS: Record<
+  PlanningHandoffDispatchMode,
+  string
+> = {
+  manual: "手动派发",
+  auto: "自动派发准备",
+};
+
+export const PLANNING_HANDOFF_READY_STATE_LABELS: Record<
+  PlanningHandoffReadyState,
+  string
+> = {
+  manual: "等待手动派发",
+  "auto-ready": "已进入自动派发准备",
+  "approval-required": "等待审批后派发",
+};
+
+export function getPlanningHandoffDispatchModeLabel(
+  value: PlanningHandoffDispatchMode,
+): string {
+  return PLANNING_HANDOFF_DISPATCH_MODE_LABELS[value];
+}
+
+export function getPlanningHandoffReadyStateLabel(
+  value: PlanningHandoffReadyState,
+): string {
+  return PLANNING_HANDOFF_READY_STATE_LABELS[value];
 }
 
 export function getPlanningExecutionProgress(

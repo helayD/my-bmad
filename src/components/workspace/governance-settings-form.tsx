@@ -218,6 +218,31 @@ export function GovernanceSettingsForm({
               disabled={isPending}
             />
           </div>
+
+          <div className="h-px bg-border" />
+
+          {/* 规划完成后自动派发 */}
+          <div className="flex items-start justify-between gap-4">
+            <div className="space-y-1">
+              <label htmlFor="autoDispatchAfterPlanning" className="text-sm font-medium leading-none">
+                规划完成后自动派发
+              </label>
+              <p className="text-sm text-muted-foreground">
+                开启后，规划确认生成的任务会直接进入自动派发准备顺序；关闭时保留为手动派发。
+              </p>
+            </div>
+            <Switch
+              id="autoDispatchAfterPlanning"
+              checked={values.autoDispatchAfterPlanning}
+              onCheckedChange={(v) =>
+                setValues((prev) => ({
+                  ...prev,
+                  autoDispatchAfterPlanning: v,
+                }))
+              }
+              disabled={isPending}
+            />
+          </div>
         </div>
 
         {error && <p className="text-sm text-destructive">{error}</p>}

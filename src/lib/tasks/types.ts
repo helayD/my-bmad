@@ -1,12 +1,20 @@
 import type { ArtifactTypeString } from "@/lib/artifacts/types";
 
-export const TASK_STATUS_VALUES = ["pending", "in-progress", "review", "done", "blocked"] as const;
+export const TASK_STATUS_VALUES = [
+  "planned",
+  "pending",
+  "in-progress",
+  "review",
+  "done",
+  "blocked",
+] as const;
 export type TaskStatus = (typeof TASK_STATUS_VALUES)[number];
 export const TASK_TERMINAL_STATUS_VALUES = ["done", "blocked"] as const;
 export type TaskTerminalStatus = (typeof TASK_TERMINAL_STATUS_VALUES)[number];
 
 export const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
-  pending: "待处理",
+  planned: "已计划",
+  pending: "待处理（旧）",
   "in-progress": "进行中",
   review: "待评审",
   done: "已完成",

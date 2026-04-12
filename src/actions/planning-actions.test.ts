@@ -13,7 +13,14 @@ vi.mock("@/lib/workspace/permissions", () => ({
   requireProjectAccess: vi.fn(),
 }));
 
+const mockGetGovernanceSettings = vi.fn();
+
+vi.mock("@/lib/workspace/update-workspace-settings", () => ({
+  getGovernanceSettings: mockGetGovernanceSettings,
+}));
+
 vi.mock("@/lib/planning/queries", () => ({
+  getPlanningRequestDetailById: vi.fn(),
   getRecentPlanningRequestsByProjectId: vi.fn(),
   mapPlanningRequestListItem: vi.fn((record: unknown) => record),
   planningRequestListItemSelect: {
@@ -32,8 +39,12 @@ vi.mock("@/lib/planning/queries", () => ({
     executionStartedAt: true,
     executionCompletedAt: true,
     executionFailedAt: true,
+    confirmedAt: true,
     artifactSummary: true,
+    taskHandoffSummary: true,
     generatedArtifactCount: true,
+    derivedTaskCount: true,
+    deferredArtifactCount: true,
     lastExecutionErrorCode: true,
     executionSteps: {
       orderBy: [{ sequence: "asc" }],
@@ -55,6 +66,7 @@ vi.mock("@/lib/planning/queries", () => ({
       },
     },
     createdAt: true,
+    updatedAt: true,
     createdByUser: {
       select: {
         id: true,
@@ -69,6 +81,23 @@ const mockExecutePlanningRequest = vi.fn();
 
 vi.mock("@/lib/planning/execution", () => ({
   executePlanningRequest: mockExecutePlanningRequest,
+}));
+
+const mockGetPlanningRequestHandoffPreview = vi.fn();
+const mockConfirmPlanningRequestHandoff = vi.fn();
+
+vi.mock("@/lib/planning/handoff", () => ({
+  getPlanningRequestHandoffPreview: mockGetPlanningRequestHandoffPreview,
+  confirmPlanningRequestHandoff: mockConfirmPlanningRequestHandoff,
+  PlanningHandoffServiceError: class PlanningHandoffServiceError extends Error {
+    code: string;
+
+    constructor(code: string) {
+      super(code);
+      this.name = "PlanningHandoffServiceError";
+      this.code = code;
+    }
+  },
 }));
 
 const mockPlanningRequestCreate = vi.fn();
@@ -102,10 +131,15 @@ const { revalidatePath } = await import("next/cache");
 const { getAuthenticatedSession, getWorkspaceById } = await import("@/lib/db/helpers");
 const { requireProjectAccess } = await import("@/lib/workspace/permissions");
 const { getRecentPlanningRequestsByProjectId } = await import("@/lib/planning/queries");
+const { getPlanningRequestDetailById } = await import("@/lib/planning/queries");
+const { PlanningHandoffServiceError } = await import("@/lib/planning/handoff");
 const {
   analyzePlanningRequestAction,
+  confirmPlanningRequestAction,
   createPlanningRequestAction,
   executePlanningRequestAction,
+  getPlanningRequestDetailAction,
+  getPlanningRequestHandoffPreviewAction,
   getPlanningRequestsAction,
   retryAnalyzePlanningRequestAction,
 } = await import("./planning-actions");
@@ -115,6 +149,7 @@ const mockGetAuthenticatedSession = getAuthenticatedSession as ReturnType<typeof
 const mockGetWorkspaceById = getWorkspaceById as ReturnType<typeof vi.fn>;
 const mockRequireProjectAccess = requireProjectAccess as ReturnType<typeof vi.fn>;
 const mockGetRecentPlanningRequests = getRecentPlanningRequestsByProjectId as ReturnType<typeof vi.fn>;
+const mockGetPlanningRequestDetailById = getPlanningRequestDetailById as ReturnType<typeof vi.fn>;
 
 const basePlanningRequest = {
   id: "planning-1",
@@ -132,8 +167,12 @@ const basePlanningRequest = {
   executionStartedAt: null,
   executionCompletedAt: null,
   executionFailedAt: null,
+  confirmedAt: null,
   artifactSummary: [],
+  taskHandoffSummary: null,
   generatedArtifactCount: 0,
+  derivedTaskCount: 0,
+  deferredArtifactCount: 0,
   lastExecutionErrorCode: null,
   executionSteps: [],
   createdAt: new Date("2026-04-11T00:20:00.000Z"),
@@ -198,6 +237,82 @@ beforeEach(() => {
       createdAt: "2026-04-11T00:20:00.000Z",
     },
   ]);
+  mockGetPlanningRequestDetailById.mockResolvedValue({
+    request: {
+      ...basePlanningRequest,
+      createdAt: "2026-04-11T00:20:00.000Z",
+    },
+    problem: {
+      stage: "execution-ready",
+      severity: "info",
+      title: "已衔接到执行准备",
+      reason: "已进入执行准备态，当前可见 1 个衍生任务，但尚未开始编码。",
+      nextAction: "查看执行准备",
+    },
+    artifacts: [
+      {
+        path: "_bmad-output/planning-artifacts/prd.md",
+        title: "PRD 草案",
+        kind: "prd",
+        summary: "已生成 PRD。",
+        sourceSkillKey: "bmad-create-prd",
+        status: "created",
+        artifactId: "artifact-prd-1",
+        artifactName: "PRD 草案",
+      },
+    ],
+    derivedTasks: [],
+    deferredArtifacts: [],
+  });
+  mockGetGovernanceSettings.mockResolvedValue({
+    agentRoutingPreference: "auto",
+    maxConcurrentTasks: 5,
+    autoRecoveryEnabled: true,
+    requireApprovalBeforeExecution: false,
+    autoDispatchAfterPlanning: false,
+  });
+  mockGetPlanningRequestHandoffPreview.mockResolvedValue({
+    planningRequestId: "planning-1",
+    dispatchMode: "manual",
+    approvalRequired: false,
+    candidateTaskCount: 2,
+    storyCount: 1,
+    groups: [
+      {
+        storyArtifactId: "artifact-story-1",
+        storyTitle: "Story 3.4",
+        storyFilePath: "_bmad-output/implementation-artifacts/3-4-story.md",
+        storyId: "3.4",
+        tasks: [
+          {
+            artifactId: "artifact-task-1",
+            artifactName: "落地用户反馈入口",
+            filePath: "_bmad-output/implementation-artifacts/3-4-story.md#task-1",
+            storyArtifactId: "artifact-story-1",
+            storyTitle: "Story 3.4",
+            storyFilePath: "_bmad-output/implementation-artifacts/3-4-story.md",
+            order: 1,
+          },
+        ],
+      },
+    ],
+  });
+  mockConfirmPlanningRequestHandoff.mockResolvedValue({
+    didConfirm: true,
+    createdTaskIds: ["task-1"],
+    summary: {
+      source: "planning-request-handoff",
+      confirmedAt: "2026-04-11T00:30:00.000Z",
+      dispatchMode: "manual",
+      approvalRequired: false,
+      candidateTaskCount: 1,
+      createdTaskCount: 1,
+      deferredArtifactCount: 0,
+      deduplicatedTaskCount: 0,
+      createdTasks: [],
+      deferredArtifacts: [],
+    },
+  });
   mockTxPlanningRequestUpdateMany.mockResolvedValue({ count: 1 });
   mockTxPlanningRequestFindUnique.mockResolvedValue({
     ...basePlanningRequest,
@@ -704,6 +819,379 @@ describe("executePlanningRequestAction", () => {
     if (!result.success) {
       expect(result.code).toBe("PLANNING_REQUEST_EXECUTE_ERROR");
       expect(result.error).toBe("规划执行失败，请稍后重试。");
+    }
+  });
+});
+
+describe("getPlanningRequestHandoffPreviewAction", () => {
+  it("rejects preview requests outside awaiting-confirmation planning flow", async () => {
+    mockPlanningRequestFindFirst.mockResolvedValue({
+      ...basePlanningRequest,
+      status: "planning",
+      routeType: "planning",
+    });
+
+    const result = await getPlanningRequestHandoffPreviewAction({
+      workspaceId: "cworkspaceid0000000000001",
+      projectId: "cprojectid0000000000000001",
+      planningRequestId: "planning-1",
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.code).toBe("PLANNING_REQUEST_CONFIRMATION_NOT_READY");
+    }
+  });
+
+  it("loads handoff preview with governance settings for awaiting-confirmation requests", async () => {
+    mockPlanningRequestFindFirst.mockResolvedValue({
+      ...basePlanningRequest,
+      status: "awaiting-confirmation",
+      progressPercent: 90,
+      routeType: "planning",
+      nextStep: "规划产出已生成，可查看摘要、编辑工件并确认后进入后续执行链路。",
+      artifactSummary: [
+        {
+          path: "_bmad-output/implementation-artifacts/3-4-story.md",
+          title: "Story 3.4",
+          kind: "story-stub",
+          summary: "已生成实现 Story stub。",
+          sourceSkillKey: "bmad-create-epics-and-stories",
+          status: "created",
+          storyId: "3.4",
+          epicId: "3",
+        },
+      ],
+    });
+
+    const result = await getPlanningRequestHandoffPreviewAction({
+      workspaceId: "cworkspaceid0000000000001",
+      projectId: "cprojectid0000000000000001",
+      planningRequestId: "planning-1",
+    });
+
+    expect(result.success).toBe(true);
+    expect(mockGetGovernanceSettings).toHaveBeenCalledWith("cworkspaceid0000000000001");
+    expect(mockGetPlanningRequestHandoffPreview).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectId: "cprojectid0000000000000001",
+        planningRequest: expect.objectContaining({
+          id: "planning-1",
+        }),
+      }),
+    );
+    if (result.success) {
+      expect(result.data.preview.candidateTaskCount).toBe(2);
+      expect(result.data.request.status).toBe("awaiting-confirmation");
+    }
+  });
+});
+
+describe("getPlanningRequestDetailAction", () => {
+  it("rejects invalid input with zod-backed validation errors", async () => {
+    const result = await getPlanningRequestDetailAction({
+      workspaceId: "",
+      projectId: "cprojectid0000000000000001",
+      planningRequestId: "planning-1",
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.code).toBe("VALIDATION_ERROR");
+    }
+  });
+
+  it("returns unauthorized when the viewer is not logged in", async () => {
+    mockGetAuthenticatedSession.mockResolvedValue(null);
+
+    const result = await getPlanningRequestDetailAction({
+      workspaceId: "cworkspaceid0000000000001",
+      projectId: "cprojectid0000000000000001",
+      planningRequestId: "planning-1",
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.code).toBe("UNAUTHORIZED");
+      expect(result.error).toBe("未登录，请先登录。");
+    }
+  });
+
+  it("enforces project read access before loading the detail view", async () => {
+    mockRequireProjectAccess.mockResolvedValue({
+      success: false,
+      error: "您没有访问此项目的权限。",
+      code: "PROJECT_ACCESS_DENIED",
+    });
+
+    const result = await getPlanningRequestDetailAction({
+      workspaceId: "cworkspaceid0000000000001",
+      projectId: "cprojectid0000000000000001",
+      planningRequestId: "planning-1",
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.code).toBe("PROJECT_ACCESS_DENIED");
+    }
+  });
+
+  it("returns not found when the requested planning record cannot be loaded", async () => {
+    mockGetPlanningRequestDetailById.mockResolvedValueOnce(null);
+
+    const result = await getPlanningRequestDetailAction({
+      workspaceId: "cworkspaceid0000000000001",
+      projectId: "cprojectid0000000000000001",
+      planningRequestId: "planning-missing",
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.code).toBe("PLANNING_REQUEST_NOT_FOUND");
+    }
+  });
+
+  it("returns an honest direct-execution detail view without fabricated planning steps", async () => {
+    mockGetPlanningRequestDetailById.mockResolvedValueOnce({
+      request: {
+        ...basePlanningRequest,
+        createdAt: "2026-04-11T00:20:00.000Z",
+        status: "execution-ready",
+        routeType: "direct-execution",
+        nextStep: "将跳过 BMAD 规划，进入执行任务定义与派发准备阶段。",
+      },
+      problem: {
+        stage: "execution-ready",
+        severity: "info",
+        title: "直接进入执行准备",
+        reason: "此请求跳过了 BMAD 规划，当前仅进入执行准备态，尚未开始编码。",
+        nextAction: "查看执行准备",
+      },
+      artifacts: [],
+      derivedTasks: [],
+      deferredArtifacts: [],
+    });
+
+    const result = await getPlanningRequestDetailAction({
+      workspaceId: "cworkspaceid0000000000001",
+      projectId: "cprojectid0000000000000001",
+      planningRequestId: "planning-1",
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.detail.request.routeType).toBe("direct-execution");
+      expect(result.data.detail.problem?.title).toBe("直接进入执行准备");
+      expect(result.data.detail.artifacts).toEqual([]);
+    }
+  });
+
+  it("returns failed-detail payloads with the highlighted failed stage", async () => {
+    mockGetPlanningRequestDetailById.mockResolvedValueOnce({
+      request: {
+        ...basePlanningRequest,
+        createdAt: "2026-04-11T00:20:00.000Z",
+        status: "failed",
+      },
+      problem: {
+        stage: "execution-failed",
+        severity: "critical",
+        title: "失败步骤：生成 PRD 工件",
+        reason: "规划工件写入失败，请检查仓库连接或本地目录权限后重试。",
+        nextAction: "重试失败步骤",
+      },
+      artifacts: [],
+      derivedTasks: [],
+      deferredArtifacts: [],
+    });
+
+    const result = await getPlanningRequestDetailAction({
+      workspaceId: "cworkspaceid0000000000001",
+      projectId: "cprojectid0000000000000001",
+      planningRequestId: "planning-1",
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.detail.problem?.stage).toBe("execution-failed");
+      expect(result.data.detail.problem?.nextAction).toBe("重试失败步骤");
+    }
+  });
+
+  it("returns execution-ready details with derived task visibility", async () => {
+    mockGetPlanningRequestDetailById.mockResolvedValueOnce({
+      request: {
+        ...basePlanningRequest,
+        createdAt: "2026-04-11T00:20:00.000Z",
+        status: "execution-ready",
+        routeType: "planning",
+        derivedTaskCount: 1,
+      },
+      problem: {
+        stage: "execution-ready",
+        severity: "info",
+        title: "已衔接到执行准备",
+        reason: "已进入执行准备态，当前可见 1 个衍生任务，但尚未开始编码。",
+        nextAction: "查看执行准备",
+      },
+      artifacts: [],
+      derivedTasks: [
+        {
+          taskId: "task-1",
+          title: "Task《落地用户反馈入口》",
+          status: "planned",
+          currentStage: "已计划",
+          nextStep: "等待手动派发。",
+          queuePosition: 1,
+          readyState: "manual",
+          sourceArtifactId: "artifact-task-1",
+          sourceArtifactName: "落地用户反馈入口",
+          sourceArtifactPath: "_bmad-output/implementation-artifacts/3-5-story.md#task-1",
+          storyArtifactId: "artifact-story-1",
+          storyTitle: "Story 3.5",
+          isLegacyPending: false,
+        },
+      ],
+      deferredArtifacts: [],
+    });
+
+    const result = await getPlanningRequestDetailAction({
+      workspaceId: "cworkspaceid0000000000001",
+      projectId: "cprojectid0000000000000001",
+      planningRequestId: "planning-1",
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.detail.derivedTasks[0]?.taskId).toBe("task-1");
+      expect(result.data.detail.problem?.stage).toBe("execution-ready");
+    }
+  });
+});
+
+describe("confirmPlanningRequestAction", () => {
+  it("returns the latest handoff result without recreating tasks when request is already execution-ready", async () => {
+    mockPlanningRequestFindFirst.mockResolvedValue({
+      ...basePlanningRequest,
+      status: "execution-ready",
+      routeType: "planning",
+      taskHandoffSummary: {
+        source: "planning-request-handoff",
+        confirmedAt: "2026-04-11T00:30:00.000Z",
+        dispatchMode: "manual",
+        approvalRequired: false,
+        candidateTaskCount: 1,
+        createdTaskCount: 1,
+        deferredArtifactCount: 0,
+        deduplicatedTaskCount: 0,
+        createdTasks: [],
+        deferredArtifacts: [],
+      },
+      derivedTaskCount: 1,
+    });
+
+    const result = await confirmPlanningRequestAction({
+      workspaceId: "cworkspaceid0000000000001",
+      projectId: "cprojectid0000000000000001",
+      planningRequestId: "planning-1",
+    });
+
+    expect(result.success).toBe(true);
+    expect(mockConfirmPlanningRequestHandoff).not.toHaveBeenCalled();
+    if (result.success) {
+      expect(result.data.didConfirm).toBe(false);
+      expect(result.data.request.status).toBe("execution-ready");
+    }
+  });
+
+  it("confirms planning handoff, passes deferred artifact ids and revalidates task detail paths", async () => {
+    mockPlanningRequestFindFirst
+      .mockResolvedValueOnce({
+        ...basePlanningRequest,
+        status: "awaiting-confirmation",
+        progressPercent: 90,
+        routeType: "planning",
+        nextStep: "规划产出已生成，可查看摘要、编辑工件并确认后进入后续执行链路。",
+        artifactSummary: [
+          {
+            path: "_bmad-output/implementation-artifacts/3-4-story.md",
+            title: "Story 3.4",
+            kind: "story-stub",
+            summary: "已生成实现 Story stub。",
+            sourceSkillKey: "bmad-create-epics-and-stories",
+            status: "created",
+            storyId: "3.4",
+            epicId: "3",
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        ...basePlanningRequest,
+        status: "execution-ready",
+        progressPercent: 100,
+        routeType: "planning",
+        confirmedAt: new Date("2026-04-11T00:30:00.000Z"),
+        nextStep: "已确认规划结果并生成执行任务，当前等待手动派发，尚未开始编码。",
+        derivedTaskCount: 1,
+        deferredArtifactCount: 1,
+        taskHandoffSummary: {
+          source: "planning-request-handoff",
+          confirmedAt: "2026-04-11T00:30:00.000Z",
+          dispatchMode: "manual",
+          approvalRequired: false,
+          candidateTaskCount: 2,
+          createdTaskCount: 1,
+          deferredArtifactCount: 1,
+          deduplicatedTaskCount: 0,
+          createdTasks: [],
+          deferredArtifacts: [],
+        },
+      });
+
+    const result = await confirmPlanningRequestAction({
+      workspaceId: "cworkspaceid0000000000001",
+      projectId: "cprojectid0000000000000001",
+      planningRequestId: "planning-1",
+      deferredArtifactIds: ["artifact-story-1"],
+    });
+
+    expect(result.success).toBe(true);
+    expect(mockConfirmPlanningRequestHandoff).toHaveBeenCalledWith(
+      expect.objectContaining({
+        planningRequestId: "planning-1",
+        deferredArtifactIds: ["artifact-story-1"],
+      }),
+    );
+    expect(mockRevalidatePath).toHaveBeenCalledWith("/workspace/demo-workspace/project/demo-project");
+    expect(mockRevalidatePath).toHaveBeenCalledWith(
+      "/workspace/demo-workspace/project/demo-project/tasks/task-1",
+    );
+    if (result.success) {
+      expect(result.data.didConfirm).toBe(true);
+      expect(result.data.request.status).toBe("execution-ready");
+      expect(result.data.request.derivedTaskCount).toBe(1);
+    }
+  });
+
+  it("surfaces honest no-task feedback when planning output has no executable task artifacts", async () => {
+    mockPlanningRequestFindFirst.mockResolvedValue({
+      ...basePlanningRequest,
+      status: "awaiting-confirmation",
+      routeType: "planning",
+    });
+    mockConfirmPlanningRequestHandoff.mockRejectedValueOnce(
+      new PlanningHandoffServiceError("PLANNING_REQUEST_NO_EXECUTABLE_TASKS"),
+    );
+
+    const result = await confirmPlanningRequestAction({
+      workspaceId: "cworkspaceid0000000000001",
+      projectId: "cprojectid0000000000000001",
+      planningRequestId: "planning-1",
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.code).toBe("PLANNING_REQUEST_NO_EXECUTABLE_TASKS");
     }
   });
 });

@@ -163,6 +163,7 @@ export interface WorkspaceGovernanceSettings {
   maxConcurrentTasks: number;
   autoRecoveryEnabled: boolean;
   requireApprovalBeforeExecution: boolean;
+  autoDispatchAfterPlanning: boolean;
 }
 
 export const workspaceGovernanceSettingsSchema = z.object({
@@ -170,6 +171,7 @@ export const workspaceGovernanceSettingsSchema = z.object({
   maxConcurrentTasks: z.number().int().min(1).max(50),
   autoRecoveryEnabled: z.boolean(),
   requireApprovalBeforeExecution: z.boolean(),
+  autoDispatchAfterPlanning: z.boolean(),
 });
 
 export const updateWorkspaceSettingsInputSchema = z.object({

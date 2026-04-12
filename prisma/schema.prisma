@@ -220,6 +220,7 @@ model Task {
   id               String        @id @default(cuid())
   workspaceId      String
   projectId        String
+  planningRequestId String?
   sourceArtifactId String?
   title            String
   goal             String
@@ -236,6 +237,7 @@ model Task {
 
   workspace        Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   project          Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  planningRequest  PlanningRequest? @relation(fields: [planningRequestId], references: [id], onDelete: SetNull)
   sourceArtifact   BmadArtifact? @relation("TaskSourceArtifact", fields: [sourceArtifactId], references: [id], onDelete: SetNull)
   createdByUser    User          @relation("TaskCreator", fields: [createdByUserId], references: [id], onDelete: Restrict)
   writebacks       Writeback[]
@@ -243,9 +245,12 @@ model Task {
 
   @@index([workspaceId])
   @@index([projectId])
+  @@index([planningRequestId])
   @@index([sourceArtifactId])
   @@index([createdByUserId])
   @@index([projectId, status])
+  @@index([projectId, planningRequestId])
+  @@unique([planningRequestId, sourceArtifactId])
   @@map("tasks")
 }
 
@@ -268,8 +273,12 @@ model PlanningRequest {
   executionStartedAt     DateTime?
   executionCompletedAt   DateTime?
   executionFailedAt      DateTime?
+  confirmedAt            DateTime?
   artifactSummary        Json?
+  taskHandoffSummary     Json?
   generatedArtifactCount Int       @default(0)
+  derivedTaskCount       Int       @default(0)
+  deferredArtifactCount  Int       @default(0)
   lastExecutionErrorCode String?
   metadata               Json?
   createdAt              DateTime  @default(now())
@@ -278,6 +287,7 @@ model PlanningRequest {
   workspace              Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   project                Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
   createdByUser          User        @relation("PlanningRequestCreator", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  tasks                  Task[]
   executionSteps         PlanningExecutionStep[]
   auditEvents            AuditEvent[]
 

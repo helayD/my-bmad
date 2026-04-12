@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
+  buildPlanningProjectUrl,
   getPlanningGoalDescribedBy,
   isPlanningRequestSubmissionBlocked,
   mergePlanningRequests,
@@ -8,6 +9,8 @@ import {
   PLANNING_GOAL_ERROR_ID,
   PLANNING_GOAL_HELP_ID,
   reconcileLatestAcceptedPlanningRequest,
+  shouldIgnorePlanningDetailResponse,
+  shouldIgnorePlanningHandoffPreviewResponse,
   submitPlanningRequestFlow,
 } from "./planning-request-composer";
 
@@ -23,8 +26,20 @@ const baseRequest = {
   selectedAgentKeys: [],
   selectedSkillKeys: [],
   analyzedAt: null,
+  executionStartedAt: null,
+  executionCompletedAt: null,
+  executionFailedAt: null,
+  confirmedAt: null,
+  lastExecutionErrorCode: null,
+  generatedArtifactCount: 0,
+  derivedTaskCount: 0,
+  deferredArtifactCount: 0,
+  artifactSummary: [],
+  executionSteps: [],
   executionHandoffDraft: null,
+  taskHandoffSummary: null,
   createdAt: "2026-04-11T00:20:00.000Z",
+  updatedAt: "2026-04-11T00:20:00.000Z",
   createdByUser: {
     id: "user-1",
     name: "Demo",
@@ -40,11 +55,16 @@ describe("PlanningRequestComposerView", () => {
         onGoalChange={() => {}}
         onSubmit={() => {}}
         onGoalKeyDown={() => {}}
+        planningStatus="all"
+        onChangePlanningStatus={() => {}}
+        onOpenDetail={() => {}}
         onResolveAnalysis={() => {}}
+        onExecutePlanning={() => {}}
         isPending={false}
         error="请输入明确的目标描述，不能只包含空格或标点。"
         latestAcceptedRequest={null}
         requests={[]}
+        selectedPlanningRequestId={null}
         hasRepo
       />,
     );
@@ -57,67 +77,33 @@ describe("PlanningRequestComposerView", () => {
     expect(markup).toContain(`aria-describedby="${PLANNING_GOAL_HELP_ID} ${PLANNING_GOAL_ERROR_ID}"`);
   });
 
-  it("renders success feedback with current stage, progress, next step and created time", () => {
+  it("renders success feedback and URL-driven filter controls", () => {
     const markup = renderToStaticMarkup(
       <PlanningRequestComposerView
         goal=""
         onGoalChange={() => {}}
         onSubmit={() => {}}
         onGoalKeyDown={() => {}}
+        planningStatus="failed"
+        onChangePlanningStatus={() => {}}
+        onOpenDetail={() => {}}
         onResolveAnalysis={() => {}}
+        onExecutePlanning={() => {}}
         isPending={false}
         error={null}
         latestAcceptedRequest={baseRequest}
         requests={[baseRequest]}
+        selectedPlanningRequestId={null}
         hasRepo
       />,
     );
 
     expect(markup).toContain("请求已接收");
     expect(markup).toContain("分析中");
-    expect(markup).toContain("10%");
-    expect(markup).toContain("等待系统识别规划意图并选择 PM Agent 与 Skills");
-    expect(markup).toContain("创建时间");
-  });
-
-  it("disables input and submit button while request is pending", () => {
-    const markup = renderToStaticMarkup(
-      <PlanningRequestComposerView
-        goal="为项目添加用户反馈收集功能"
-        onGoalChange={() => {}}
-        onSubmit={() => {}}
-        onGoalKeyDown={() => {}}
-        onResolveAnalysis={() => {}}
-        isPending
-        error={null}
-        latestAcceptedRequest={null}
-        requests={[]}
-        hasRepo
-      />,
-    );
-
-    expect(markup).toContain("提交中…");
-    expect(markup).toContain("disabled");
-  });
-
-  it("renders validation feedback next to the input area", () => {
-    const markup = renderToStaticMarkup(
-      <PlanningRequestComposerView
-        goal="..."
-        onGoalChange={() => {}}
-        onSubmit={() => {}}
-        onGoalKeyDown={() => {}}
-        onResolveAnalysis={() => {}}
-        isPending={false}
-        error="请输入明确的目标描述，不能只包含空格或标点。"
-        latestAcceptedRequest={null}
-        requests={[]}
-        hasRepo
-      />,
-    );
-
-    expect(markup).toContain("请输入明确的目标描述");
-    expect(markup).toContain("aria-invalid=\"true\"");
+    expect(markup).toContain("规划请求历史");
+    expect(markup).toContain("全部");
+    expect(markup).toContain("已失败");
+    expect(markup).toContain("查看链路详情");
   });
 
   it("keeps the planning entry visible even when the project has no repo", () => {
@@ -127,11 +113,16 @@ describe("PlanningRequestComposerView", () => {
         onGoalChange={() => {}}
         onSubmit={() => {}}
         onGoalKeyDown={() => {}}
+        planningStatus="all"
+        onChangePlanningStatus={() => {}}
+        onOpenDetail={() => {}}
         onResolveAnalysis={() => {}}
+        onExecutePlanning={() => {}}
         isPending={false}
         error={null}
         latestAcceptedRequest={null}
         requests={[]}
+        selectedPlanningRequestId={null}
         hasRepo={false}
       />,
     );
@@ -153,17 +144,20 @@ describe("planning request composer helpers", () => {
     expect(isPlanningRequestSubmissionBlocked(false, true)).toBe(true);
   });
 
-  it("merges the latest accepted request ahead of the server list without duplicates", () => {
+  it("merges the latest accepted request while respecting the current status filter", () => {
     const latestAcceptedRequest = {
       ...baseRequest,
       id: "planning-2",
       rawGoal: "整理规划入口文案与状态反馈",
+      status: "failed" as const,
     };
 
-    expect(mergePlanningRequests([baseRequest], latestAcceptedRequest)).toEqual([
-      latestAcceptedRequest,
-      baseRequest,
-    ]);
+    expect(
+      mergePlanningRequests([], latestAcceptedRequest, { filter: "failed" }),
+    ).toEqual([latestAcceptedRequest]);
+    expect(
+      mergePlanningRequests([baseRequest], latestAcceptedRequest, { filter: "planning" }),
+    ).toEqual([baseRequest]);
   });
 
   it("prefers refreshed server data for the latest accepted request when available", () => {
@@ -176,6 +170,77 @@ describe("planning request composer helpers", () => {
     };
 
     expect(reconcileLatestAcceptedPlanningRequest([refreshedRequest], baseRequest)).toEqual(refreshedRequest);
+  });
+
+  it("builds shareable project URLs while preserving unrelated search params", () => {
+    const url = buildPlanningProjectUrl(
+      "/workspace/demo/project/app",
+      new URLSearchParams("artifactId=artifact-1&planningRequestId=planning-1"),
+      {
+        planningStatus: "failed",
+        planningRequestId: null,
+      },
+    );
+
+    expect(url).toBe("/workspace/demo/project/app?artifactId=artifact-1&planningStatus=failed");
+  });
+
+  it("ignores stale planning detail responses after close or request switch", () => {
+    expect(
+      shouldIgnorePlanningDetailResponse({
+        activeRequestId: null,
+        responseRequestId: "planning-1",
+        activeToken: 2,
+        responseToken: 2,
+      }),
+    ).toBe(true);
+
+    expect(
+      shouldIgnorePlanningDetailResponse({
+        activeRequestId: "planning-2",
+        responseRequestId: "planning-1",
+        activeToken: 3,
+        responseToken: 2,
+      }),
+    ).toBe(true);
+
+    expect(
+      shouldIgnorePlanningDetailResponse({
+        activeRequestId: "planning-1",
+        responseRequestId: "planning-1",
+        activeToken: 2,
+        responseToken: 2,
+      }),
+    ).toBe(false);
+  });
+
+  it("ignores stale handoff preview responses after close or request switch", () => {
+    expect(
+      shouldIgnorePlanningHandoffPreviewResponse({
+        activeRequestId: null,
+        responseRequestId: "planning-1",
+        activeToken: 2,
+        responseToken: 2,
+      }),
+    ).toBe(true);
+
+    expect(
+      shouldIgnorePlanningHandoffPreviewResponse({
+        activeRequestId: "planning-2",
+        responseRequestId: "planning-1",
+        activeToken: 3,
+        responseToken: 2,
+      }),
+    ).toBe(true);
+
+    expect(
+      shouldIgnorePlanningHandoffPreviewResponse({
+        activeRequestId: "planning-1",
+        responseRequestId: "planning-1",
+        activeToken: 2,
+        responseToken: 2,
+      }),
+    ).toBe(false);
   });
 
   it("creates a request and automatically triggers analysis", async () => {

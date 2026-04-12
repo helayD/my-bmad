@@ -11,22 +11,35 @@ import { prisma } from "@/lib/db/client";
 import { getAuthenticatedSession, getWorkspaceById } from "@/lib/db/helpers";
 import { sanitizeError } from "@/lib/errors";
 import { executePlanningRequest } from "@/lib/planning/execution";
+import {
+  confirmPlanningRequestHandoff,
+  getPlanningRequestHandoffPreview,
+  PlanningHandoffServiceError,
+} from "@/lib/planning/handoff";
 import { analyzePlanningIntent } from "@/lib/planning/intent";
 import {
+  getPlanningRequestDetailById,
   getRecentPlanningRequestsByProjectId,
   mapPlanningRequestListItem,
   planningRequestListItemSelect,
 } from "@/lib/planning/queries";
 import {
   INITIAL_PLANNING_REQUEST_STATE,
+  type PlanningRequestDetailView,
   type PlanningRequestListItem,
   DEFAULT_PLANNING_REQUEST_LIMIT,
+  type PlanningHandoffPreview,
   validatePlanningGoal,
 } from "@/lib/planning/types";
 import type { ActionResult } from "@/lib/types";
 import { requireProjectAccess } from "@/lib/workspace/permissions";
+import { getGovernanceSettings } from "@/lib/workspace/update-workspace-settings";
 import { toProjectRepoProviderConfig } from "@/lib/content-provider/project-provider";
-import { PlanningArtifactWriteError } from "@/lib/planning/artifact-writer";
+import {
+  PlanningArtifactWriteError,
+} from "@/lib/planning/artifact-writer";
+import { ProjectProviderError } from "@/lib/content-provider/project-provider";
+import { TaskContextError } from "@/lib/tasks/context";
 
 const planningRequestInputSchema = z.object({
   workspaceId: z.string().min(1),
@@ -47,6 +60,9 @@ const planningRequestAnalysisInputSchema = z.object({
 });
 
 const planningRequestExecuteInputSchema = planningRequestAnalysisInputSchema;
+const planningRequestConfirmInputSchema = planningRequestAnalysisInputSchema.extend({
+  deferredArtifactIds: z.array(z.string().min(1)).optional(),
+});
 
 interface PlanningRequestCreatePayload {
   request: PlanningRequestListItem;
@@ -61,9 +77,23 @@ interface PlanningRequestAnalyzePayload {
   didAnalyze: boolean;
 }
 
+interface PlanningRequestDetailPayload {
+  detail: PlanningRequestDetailView;
+}
+
 interface PlanningRequestExecutePayload {
   request: PlanningRequestListItem;
   didExecute: boolean;
+}
+
+interface PlanningRequestHandoffPreviewPayload {
+  request: PlanningRequestListItem;
+  preview: PlanningHandoffPreview;
+}
+
+interface PlanningRequestConfirmPayload {
+  request: PlanningRequestListItem;
+  didConfirm: boolean;
 }
 
 type PlanningRequestAnalysisInput = z.infer<typeof planningRequestAnalysisInputSchema>;
@@ -651,6 +681,253 @@ export async function executePlanningRequestAction(
       success: false,
       error: sanitizeError(error, code),
       code,
+    };
+  }
+}
+
+export async function getPlanningRequestHandoffPreviewAction(
+  input: { workspaceId: string; projectId: string; planningRequestId: string },
+): Promise<ActionResult<PlanningRequestHandoffPreviewPayload>> {
+  const parsed = planningRequestAnalysisInputSchema.safeParse(input);
+  if (!parsed.success) {
+    return { success: false, error: sanitizeError(null, "VALIDATION_ERROR"), code: "VALIDATION_ERROR" };
+  }
+
+  const session = await getAuthenticatedSession();
+  if (!session) {
+    return { success: false, error: sanitizeError(null, "UNAUTHORIZED"), code: "UNAUTHORIZED" };
+  }
+
+  const contextResult = await loadPlanningActionContext(parsed.data, session.userId);
+  if (!contextResult.success) {
+    return contextResult;
+  }
+
+  const request = await getPlanningRequestRecord(parsed.data);
+  if (!request) {
+    return {
+      success: false,
+      error: sanitizeError(null, "PLANNING_REQUEST_NOT_FOUND"),
+      code: "PLANNING_REQUEST_NOT_FOUND",
+    };
+  }
+
+  if (request.routeType !== "planning") {
+    return {
+      success: false,
+      error: sanitizeError(null, "PLANNING_REQUEST_CONFIRMATION_UNSUPPORTED"),
+      code: "PLANNING_REQUEST_CONFIRMATION_UNSUPPORTED",
+    };
+  }
+
+  if (request.status !== "awaiting-confirmation") {
+    return {
+      success: false,
+      error: sanitizeError(null, "PLANNING_REQUEST_CONFIRMATION_NOT_READY"),
+      code: "PLANNING_REQUEST_CONFIRMATION_NOT_READY",
+    };
+  }
+
+  try {
+    const settings = await getGovernanceSettings(parsed.data.workspaceId);
+    const preview = await getPlanningRequestHandoffPreview({
+      projectId: parsed.data.projectId,
+      planningRequest: {
+        id: request.id,
+        artifactSummary: request.artifactSummary,
+      },
+      settings,
+    });
+
+    return {
+      success: true,
+      data: {
+        request: mapPlanningRequestListItem(request),
+        preview,
+      },
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: sanitizeError(error, "PLANNING_REQUEST_HANDOFF_PREVIEW_ERROR"),
+      code: "PLANNING_REQUEST_HANDOFF_PREVIEW_ERROR",
+    };
+  }
+}
+
+export async function getPlanningRequestDetailAction(
+  input: { workspaceId: string; projectId: string; planningRequestId: string },
+): Promise<ActionResult<PlanningRequestDetailPayload>> {
+  const parsed = planningRequestAnalysisInputSchema.safeParse(input);
+  if (!parsed.success) {
+    return { success: false, error: sanitizeError(null, "VALIDATION_ERROR"), code: "VALIDATION_ERROR" };
+  }
+
+  const session = await getAuthenticatedSession();
+  if (!session) {
+    return { success: false, error: sanitizeError(null, "UNAUTHORIZED"), code: "UNAUTHORIZED" };
+  }
+
+  const accessResult = await requireProjectAccess(
+    parsed.data.workspaceId,
+    parsed.data.projectId,
+    session.userId,
+    "read",
+  );
+  if (!accessResult.success) {
+    return accessResult;
+  }
+
+  try {
+    const detail = await getPlanningRequestDetailById(
+      parsed.data.projectId,
+      parsed.data.planningRequestId,
+    );
+    if (!detail) {
+      return {
+        success: false,
+        error: sanitizeError(null, "PLANNING_REQUEST_NOT_FOUND"),
+        code: "PLANNING_REQUEST_NOT_FOUND",
+      };
+    }
+
+    return {
+      success: true,
+      data: {
+        detail,
+      },
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: sanitizeError(error, "PLANNING_REQUEST_DETAIL_ERROR"),
+      code: "PLANNING_REQUEST_DETAIL_ERROR",
+    };
+  }
+}
+
+export async function confirmPlanningRequestAction(
+  input: {
+    workspaceId: string;
+    projectId: string;
+    planningRequestId: string;
+    deferredArtifactIds?: string[];
+  },
+): Promise<ActionResult<PlanningRequestConfirmPayload>> {
+  const parsed = planningRequestConfirmInputSchema.safeParse(input);
+  if (!parsed.success) {
+    return { success: false, error: sanitizeError(null, "VALIDATION_ERROR"), code: "VALIDATION_ERROR" };
+  }
+
+  const session = await getAuthenticatedSession();
+  if (!session) {
+    return { success: false, error: sanitizeError(null, "UNAUTHORIZED"), code: "UNAUTHORIZED" };
+  }
+
+  const contextResult = await loadPlanningActionContext(parsed.data, session.userId);
+  if (!contextResult.success) {
+    return contextResult;
+  }
+
+  const request = await getPlanningRequestRecord(parsed.data);
+  if (!request) {
+    return {
+      success: false,
+      error: sanitizeError(null, "PLANNING_REQUEST_NOT_FOUND"),
+      code: "PLANNING_REQUEST_NOT_FOUND",
+    };
+  }
+
+  if (request.routeType !== "planning") {
+    return {
+      success: false,
+      error: sanitizeError(null, "PLANNING_REQUEST_CONFIRMATION_UNSUPPORTED"),
+      code: "PLANNING_REQUEST_CONFIRMATION_UNSUPPORTED",
+    };
+  }
+
+  if (request.status === "execution-ready" && request.taskHandoffSummary) {
+    return {
+      success: true,
+      data: {
+        request: mapPlanningRequestListItem(request),
+        didConfirm: false,
+      },
+    };
+  }
+
+  if (request.status !== "awaiting-confirmation") {
+    return {
+      success: false,
+      error: sanitizeError(null, "PLANNING_REQUEST_CONFIRMATION_NOT_READY"),
+      code: "PLANNING_REQUEST_CONFIRMATION_NOT_READY",
+    };
+  }
+
+  if (!contextResult.data.repo) {
+    return {
+      success: false,
+      error: sanitizeError(null, "PLANNING_REPO_REQUIRED"),
+      code: "PLANNING_REPO_REQUIRED",
+    };
+  }
+
+  try {
+    const settings = await getGovernanceSettings(parsed.data.workspaceId);
+    const handoffResult = await confirmPlanningRequestHandoff({
+      workspaceId: parsed.data.workspaceId,
+      projectId: parsed.data.projectId,
+      planningRequestId: parsed.data.planningRequestId,
+      actorUserId: session.userId,
+      planningRequest: {
+        id: request.id,
+        artifactSummary: request.artifactSummary,
+      },
+      repo: contextResult.data.repo,
+      settings,
+      deferredArtifactIds: parsed.data.deferredArtifactIds ?? [],
+    });
+
+    revalidatePath(getProjectPath(contextResult.data));
+    for (const taskId of handoffResult.createdTaskIds) {
+      revalidatePath(
+        `/workspace/${contextResult.data.workspaceSlug}/project/${contextResult.data.projectSlug}/tasks/${taskId}`,
+      );
+    }
+
+    const latestRequest = await getPlanningRequestRecord(parsed.data);
+    if (!latestRequest) {
+      return {
+        success: false,
+        error: sanitizeError(null, "PLANNING_REQUEST_NOT_FOUND"),
+        code: "PLANNING_REQUEST_NOT_FOUND",
+      };
+    }
+
+    return {
+      success: true,
+      data: {
+        request: mapPlanningRequestListItem(latestRequest),
+        didConfirm: handoffResult.didConfirm,
+      },
+    };
+  } catch (error) {
+    if (
+      error instanceof PlanningHandoffServiceError
+      || error instanceof ProjectProviderError
+      || error instanceof TaskContextError
+    ) {
+      return {
+        success: false,
+        error: sanitizeError(error, error.code),
+        code: error.code,
+      };
+    }
+
+    return {
+      success: false,
+      error: sanitizeError(error, "PLANNING_REQUEST_CONFIRM_ERROR"),
+      code: "PLANNING_REQUEST_CONFIRM_ERROR",
     };
   }
 }

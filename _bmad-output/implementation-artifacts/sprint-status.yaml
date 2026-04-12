@@ -1,5 +1,5 @@
 # generated: 2026-04-04T22:05:00+08:00
-# last_updated: 2026-04-11T23:39:21+08:00
+# last_updated: 2026-04-12T21:07:31+08:00
 # project: my-bmad
 # project_key: NOKEY
 # tracking_system: file-system
@@ -17,7 +17,7 @@
 # - Dev 将 Story 移到 review，然后运行 code-review（建议换 LLM 以获得新视角）
 
 generated: "2026-04-04T22:05:00+08:00"
-last_updated: "2026-04-11T23:39:21+08:00"
+last_updated: "2026-04-12T21:07:31+08:00"
 project: my-bmad
 project_key: NOKEY
 tracking_system: file-system
@@ -51,8 +51,8 @@ development_status:
   3-1-自然语言目标输入与规划请求创建: review
   3-2-规划意图识别与Agent-Skill选择: review
   3-3-规划执行与BMAD工件生成: review
-  3-4-规划结果自动衔接执行链路: backlog
-  3-5-规划到执行派发的完整链路可见性: backlog
+  3-4-规划结果自动衔接执行链路: ready-for-dev
+  3-5-规划到执行派发的完整链路可见性: review
   epic-3-回顾: optional
 
   # ── Epic 4: 任务派发与 Self-Hosted 执行启动 ──

@@ -1,5 +1,9 @@
 import type { Prisma } from "@/generated/prisma/client";
 import type { TaskArtifactReference, WritebackOutcome, WritebackStatus } from "@/lib/tasks/types";
+import type {
+  PlanningHandoffDispatchMode,
+  PlanningHandoffReadyState,
+} from "@/lib/planning/types";
 
 export const WRITEBACK_AUDIT_EVENT_NAMES = {
   succeeded: "writeback.succeeded",
@@ -55,6 +59,9 @@ export const PLANNING_AUDIT_EVENT_NAMES = {
   stepCompleted: "planningRequest.stepCompleted",
   stepFailed: "planningRequest.stepFailed",
   executionCompleted: "planningRequest.executionCompleted",
+  confirmed: "planningRequest.confirmed",
+  executionTasksCreated: "planningRequest.executionTasksCreated",
+  executionTasksDeferred: "planningRequest.executionTasksDeferred",
 } as const;
 
 export type PlanningAuditEventName =
@@ -81,9 +88,28 @@ export interface PlanningExecutionAuditPayload {
   errorMessage?: string | null;
 }
 
+export interface PlanningHandoffQueueAuditItem {
+  taskId: string;
+  sourceArtifactId: string;
+  queuePosition: number;
+  priority: string;
+  readyState: PlanningHandoffReadyState;
+}
+
+export interface PlanningRequestHandoffAuditPayload {
+  planningRequestId: string;
+  confirmedArtifactIds: string[];
+  deferredArtifactIds: string[];
+  dispatchMode: PlanningHandoffDispatchMode;
+  approvalRequired: boolean;
+  createdTaskIds: string[];
+  dispatchQueue: PlanningHandoffQueueAuditItem[];
+}
+
 export type PlanningAuditPayload =
   | PlanningIntentResolvedAuditPayload
-  | PlanningExecutionAuditPayload;
+  | PlanningExecutionAuditPayload
+  | PlanningRequestHandoffAuditPayload;
 
 interface BuildPlanningAuditEventInput {
   workspaceId: string;

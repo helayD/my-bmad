@@ -889,8 +889,10 @@ function resolveTaskSortTimestamp(
 
 function resolveRunStatusLabel(value: string | null): string {
   switch (value) {
+    case "planned":
+      return "已计划";
     case "pending":
-      return "待处理";
+      return "待处理（旧）";
     case "in-progress":
       return "进行中";
     case "review":

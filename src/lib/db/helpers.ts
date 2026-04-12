@@ -194,6 +194,54 @@ export const getProjectArtifacts = cache(
   }
 );
 
+export const getArtifactsByProjectIdAndFilePaths = cache(
+  async (projectId: string, filePaths: string[]) => {
+    if (filePaths.length === 0) {
+      return [];
+    }
+
+    return prisma.bmadArtifact.findMany({
+      where: {
+        projectId,
+        status: "active",
+        filePath: { in: filePaths },
+      },
+      select: {
+        id: true,
+        type: true,
+        name: true,
+        filePath: true,
+        parentId: true,
+        metadata: true,
+      },
+    });
+  }
+);
+
+export const getArtifactsByProjectIdAndIds = cache(
+  async (projectId: string, artifactIds: string[]) => {
+    if (artifactIds.length === 0) {
+      return [];
+    }
+
+    return prisma.bmadArtifact.findMany({
+      where: {
+        projectId,
+        status: "active",
+        id: { in: artifactIds },
+      },
+      select: {
+        id: true,
+        type: true,
+        name: true,
+        filePath: true,
+        parentId: true,
+        metadata: true,
+      },
+    });
+  }
+);
+
 /**
  * Get a single BmadArtifact by ID. Cached per request via React cache().
  */
@@ -258,6 +306,7 @@ export const getTaskById = cache(
 
 const taskHistoryRecordSelect = {
   id: true,
+  planningRequestId: true,
   sourceArtifactId: true,
   title: true,
   status: true,
@@ -350,6 +399,33 @@ export const getTasksBySourceArtifactId = cache(
     const tasks = await getTasksBySourceArtifactIds(projectId, [sourceArtifactId], status);
     return tasks;
   }
+);
+
+export const getTasksByPlanningRequestId = cache(
+  async (projectId: string, planningRequestId: string, status?: string) => {
+    const tasks = await getTasksByPlanningRequestIds(projectId, [planningRequestId], status);
+    return tasks.filter((task) => task.planningRequestId === planningRequestId);
+  },
+);
+
+export const getTasksByPlanningRequestIds = cache(
+  async (projectId: string, planningRequestIds: string[], status?: string) => {
+    if (planningRequestIds.length === 0) {
+      return [];
+    }
+
+    return prisma.task.findMany({
+      where: {
+        projectId,
+        planningRequestId: {
+          in: planningRequestIds,
+        },
+        ...(status ? { status } : {}),
+      },
+      select: taskHistoryRecordSelect,
+      orderBy: { createdAt: "desc" },
+    });
+  },
 );
 
 export const getLatestWritebackByTaskId = cache(
