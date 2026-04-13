@@ -54,6 +54,9 @@ validation-rules:
 - [ ] **Change Log Updated:** Change Log includes clear summary of what changed and why
 - [ ] **Review Follow-ups:** All review follow-up tasks (marked [AI-Review]) completed and corresponding review items marked resolved (if applicable)
 - [ ] **Story Structure Compliance:** Only permitted sections of story file were modified
+- [ ] **Worker Outputs Integrated:** If subagents were used, their recommended File List / Completion Notes / Debug Log / Change Log updates were merged by the parent agent
+- [ ] **Implementation Handoff Ready:** Reviewer-facing implementation summary exists with changed files, tests run, risks, and review focus areas
+- [ ] **Outstanding Questions Recorded:** Any unresolved assumptions, tradeoffs, or follow-up risks are documented for reviewers
 
 ## 🔚 Final Status Verification
 

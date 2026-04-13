@@ -1,0 +1,38 @@
+{
+  "layer": "edge",
+  "status": "ok",
+  "summary": "Code-path review confirmed the diff leaves one core legacy visibility gap unresolved and introduces two state-management edge cases in the new UI helpers.",
+  "findings": [
+    {
+      "title": "Execution-ready visibility still trusts summary fields over DB truth",
+      "detail": "The list query never batch-loads tasks by planningRequestId, and the detail model resolves the top-level problem summary before it knows how many derivedTasks were actually found. That means legacy execution-ready rows can show zero tasks / 'no visible task records' while the derived task section below is populated from real Task rows.",
+      "location": "src/lib/planning/queries.ts:168",
+      "severity": "high",
+      "evidence": "buildPlanningRequestDetailViews() builds derivedTasks after problem: resolvePlanningRequestProblemSummary(request), and getPlanningRequestsByProjectId() performs no task enrichment at all.",
+      "rule_or_ac": "Story 3.5 Task 1.4 / 1.7 / 4.5",
+      "trigger_condition": "legacy rows with missing handoff summary or stale derivedTaskCount",
+      "potential_consequence": "The new visibility feature contradicts itself across summary and detail surfaces, especially for migrated data."
+    },
+    {
+      "title": "Retrying analysis can be flagged stalled immediately",
+      "detail": "Because the stall check uses createdAt instead of a timestamp tied to the active analysis attempt, any retried request older than five minutes becomes '分析尚未推进' as soon as it returns to analyzing.",
+      "location": "src/lib/planning/types.ts:745",
+      "severity": "medium",
+      "evidence": "hasPlanningAnalysisStalled(createdAt) compares Date.parse(createdAt) directly against Date.now().",
+      "rule_or_ac": "Story 3.5 Task 1.6",
+      "trigger_condition": "old request retried into analyzing",
+      "potential_consequence": "The problem-stage helper produces misleading warnings and suggested actions."
+    },
+    {
+      "title": "New handoff dialog reintroduces the stale-response race the detail sheet already guarded against",
+      "detail": "The detail panel got token-based stale response protection, but the new handoff preview path did not. The result is the exact close/switch race that Story 3.5 called out as something to regression-test and avoid in request-linked detail flows.",
+      "location": "src/components/planning/planning-request-composer.tsx:647",
+      "severity": "medium",
+      "evidence": "detailRequestTokenRef / shouldIgnorePlanningDetailResponse exist for detail loading, but no equivalent exists for getPlanningRequestHandoffPreviewAction().",
+      "rule_or_ac": "Story 3.5 Task 3.6 / 5.5",
+      "trigger_condition": "parallel or quickly sequenced preview opens",
+      "potential_consequence": "The dialog can present stale candidates and deferred selections from the wrong planning request."
+    }
+  ],
+  "parsing_notes": []
+}

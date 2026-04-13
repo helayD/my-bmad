@@ -1,0 +1,38 @@
+{
+  "layer": "auditor",
+  "status": "ok",
+  "summary": "Against Story 3.5, the implementation is close, but it still misses the promised legacy fallback truth source and one of the async stale-response safeguards.",
+  "findings": [
+    {
+      "title": "Story 3.5's legacy fallback is not fully implemented in list/detail state",
+      "detail": "The story explicitly requires legacy requests with missing taskHandoffSummary to stay honest by resolving real tasks via Task.planningRequestId. The current implementation only uses that truth source for the derived task list itself; the list summary and top-level execution-ready problem messaging still come from stored summary fields, so the visibility story is incomplete in the exact edge case called out by the spec.",
+      "location": "src/lib/planning/queries.ts:226",
+      "severity": "high",
+      "evidence": "problem is computed from request before derivedTasks are built, and list items are returned without any task enrichment.",
+      "rule_or_ac": "Story 3.5 Task 1.4 / 1.7 / 4.5 / 5.5",
+      "trigger_condition": "legacy execution-ready planning request with empty summary fields and real linked tasks",
+      "potential_consequence": "Users lose confidence in the new chain visibility because the headline state disagrees with the actual linked execution records."
+    },
+    {
+      "title": "Stall classification does not reflect the current analysis attempt",
+      "detail": "Task 1.6 asks for clear distinction when analyzing has not progressed for a long time. The helper currently uses the request's original creation timestamp, not a timestamp from the current attempt, so retries are misclassified immediately.",
+      "location": "src/lib/planning/types.ts:700",
+      "severity": "medium",
+      "evidence": "createdAt is the only timestamp consulted for the stall threshold.",
+      "rule_or_ac": "Story 3.5 Task 1.6",
+      "trigger_condition": "an older request is re-analyzed",
+      "potential_consequence": "Problem-stage highlighting becomes noisy and users are pushed toward the wrong recovery action."
+    },
+    {
+      "title": "Async stale-response coverage stops at the detail sheet",
+      "detail": "Task 5.5 calls out stale async responses after close/switch. The diff adds protection for detail loading, but the new handoff preview flow is still last-response-wins and has no guard for dialog close or request switches.",
+      "location": "src/components/planning/planning-request-composer.tsx:630",
+      "severity": "medium",
+      "evidence": "No request token / active request check is performed before committing handoff preview results.",
+      "rule_or_ac": "Story 3.5 Task 5.5",
+      "trigger_condition": "user opens multiple previews quickly or closes while a preview is loading",
+      "potential_consequence": "The recovery/confirmation path can show stale content even though the detail path was explicitly hardened against that class of bug."
+    }
+  ],
+  "parsing_notes": []
+}

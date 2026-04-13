@@ -1,0 +1,56 @@
+{
+  "execution_mode_resolved": "sequential",
+  "failed_layers": [],
+  "dismiss_count": 0,
+  "decision_needed": [],
+  "patch": [
+    {
+      "id": 1,
+      "source": "blind+edge+auditor",
+      "title": "Legacy execution-ready visibility still trusts summary fields over real task links",
+      "detail": "The project list never batch-loads tasks by planningRequestId, and the detail read model resolves the execution-ready problem summary before derivedTasks are enriched. In the legacy/drift case where taskHandoffSummary or derivedTaskCount is empty but linked Task rows exist, the list still shows stale counts and the detail banner can still claim there are no visible derived tasks even while the real task list renders below. Use batched task enrichment for list items and compute the problem summary from the enriched detail model instead of only the stored summary fields.",
+      "location": "src/lib/planning/queries.ts:129"
+    },
+    {
+      "id": 2,
+      "source": "blind+edge+auditor",
+      "title": "Analysis-stalled warnings are based on createdAt instead of the active attempt",
+      "detail": "The new problem-stage helper treats an analyzing request as stalled once createdAt is more than five minutes old. Retried requests therefore become '分析尚未推进' immediately, even when the new attempt just started. Track the current attempt time instead of the original request creation time.",
+      "location": "src/lib/planning/types.ts:700"
+    },
+    {
+      "id": 3,
+      "source": "blind+edge+auditor",
+      "title": "The new handoff preview dialog has no stale-response protection",
+      "detail": "handleOpenHandoff() always commits whichever preview response resolves, with no active-request token or close/switch guard. A slower response for request A can overwrite the dialog after the user has already closed it or opened request B. Mirror the token/cancel pattern used for detail loading before writing handoff preview state.",
+      "location": "src/components/planning/planning-request-composer.tsx:630"
+    }
+  ],
+  "defer": [],
+  "all_findings": [
+    {
+      "id": 1,
+      "source": "blind+edge+auditor",
+      "bucket": "patch",
+      "title": "Legacy execution-ready visibility still trusts summary fields over real task links",
+      "detail": "The project list never batch-loads tasks by planningRequestId, and the detail read model resolves the execution-ready problem summary before derivedTasks are enriched. In the legacy/drift case where taskHandoffSummary or derivedTaskCount is empty but linked Task rows exist, the list still shows stale counts and the detail banner can still claim there are no visible derived tasks even while the real task list renders below. Use batched task enrichment for list items and compute the problem summary from the enriched detail model instead of only the stored summary fields.",
+      "location": "src/lib/planning/queries.ts:129"
+    },
+    {
+      "id": 2,
+      "source": "blind+edge+auditor",
+      "bucket": "patch",
+      "title": "Analysis-stalled warnings are based on createdAt instead of the active attempt",
+      "detail": "The new problem-stage helper treats an analyzing request as stalled once createdAt is more than five minutes old. Retried requests therefore become '分析尚未推进' immediately, even when the new attempt just started. Track the current attempt time instead of the original request creation time.",
+      "location": "src/lib/planning/types.ts:700"
+    },
+    {
+      "id": 3,
+      "source": "blind+edge+auditor",
+      "bucket": "patch",
+      "title": "The new handoff preview dialog has no stale-response protection",
+      "detail": "handleOpenHandoff() always commits whichever preview response resolves, with no active-request token or close/switch guard. A slower response for request A can overwrite the dialog after the user has already closed it or opened request B. Mirror the token/cancel pattern used for detail loading before writing handoff preview state.",
+      "location": "src/components/planning/planning-request-composer.tsx:630"
+    }
+  ]
+}

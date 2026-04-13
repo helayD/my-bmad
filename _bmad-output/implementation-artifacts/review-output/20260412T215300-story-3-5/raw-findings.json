@@ -1,0 +1,25 @@
+{
+  "execution_mode_requested": "auto",
+  "execution_mode_resolved": "sequential",
+  "review_mode": "full",
+  "failed_layers": [],
+  "layers": [
+    {
+      "path": "/Users/helay/Documents/GitHub/my-bmad/_bmad-output/implementation-artifacts/review-output/20260412T215300-story-3-5/blind.json",
+      "layer": "blind"
+    },
+    {
+      "path": "/Users/helay/Documents/GitHub/my-bmad/_bmad-output/implementation-artifacts/review-output/20260412T215300-story-3-5/edge.json",
+      "layer": "edge"
+    },
+    {
+      "path": "/Users/helay/Documents/GitHub/my-bmad/_bmad-output/implementation-artifacts/review-output/20260412T215300-story-3-5/auditor.json",
+      "layer": "auditor"
+    }
+  ],
+  "artifacts": {
+    "blind": "/Users/helay/Documents/GitHub/my-bmad/_bmad-output/implementation-artifacts/review-output/20260412T215300-story-3-5/blind.json",
+    "edge": "/Users/helay/Documents/GitHub/my-bmad/_bmad-output/implementation-artifacts/review-output/20260412T215300-story-3-5/edge.json",
+    "auditor": "/Users/helay/Documents/GitHub/my-bmad/_bmad-output/implementation-artifacts/review-output/20260412T215300-story-3-5/auditor.json"
+  }
+}

@@ -1,15 +1,18 @@
 # Dev Story Workflow
 
-**Goal:** Execute story implementation following a context filled story spec file.
+**Goal:** Execute story implementation following a context filled story spec file, optionally orchestrating bounded subagents for exploration, implementation, testing, and review-ready handoff.
 
-**Your Role:** Developer implementing the story.
+**Your Role:** Lead developer and orchestrator implementing the story.
 - Communicate all responses in {communication_language} and language MUST be tailored to {user_skill_level}
 - Generate all documents in {document_output_language}
 - Only modify the story file in these areas: Tasks/Subtasks checkboxes, Dev Agent Record (Debug Log, Completion Notes), File List, Change Log, and Status
 - Execute ALL steps in exact order; do NOT skip steps
 - Absolutely DO NOT stop because of "milestones", "significant progress", or "session boundaries". Continue in a single execution until the story is COMPLETE (all ACs satisfied and all tasks/subtasks checked) UNLESS a HALT condition is triggered or the USER gives other instruction.
-- Do NOT schedule a "next session" or request review pauses unless a HALT condition applies. Only Step 6 decides completion.
+- Do NOT schedule a "next session" or request review pauses unless a HALT condition applies. Only Step 9 decides completion.
 - User skill level ({user_skill_level}) affects conversation style ONLY, not code updates.
+- The parent agent owns story file edits, sprint-status updates, task completion decisions, and final review handoff.
+- Subagents may edit bounded code or test files only when their ownership is explicit and non-overlapping.
+- Any subagent prompt must explicitly pass `{communication_language}`, `{document_output_language}`, and `{user_skill_level}` so child workers align with the same config.
 
 ---
 
@@ -24,15 +27,63 @@ Load config from `{project-root}/_bmad/bmm/config.yaml` and resolve:
 - `user_skill_level`
 - `implementation_artifacts`
 - `date` as system-generated current datetime
+- optional `dev_story_execution_mode` = `auto | subagent | sequential` (default `auto`)
+- optional `dev_story_capability_probe` = `true | false` (default `true`)
 
 ### Paths
 
-- `story_file` = `` (explicit story path; auto-discovered if empty)
+- `story_path` = `` (explicit story path; auto-discovered if empty)
 - `sprint_status` = `{implementation_artifacts}/sprint-status.yaml`
 
 ### Context
 
 - `project_context` = `**/project-context.md` (load if exists)
+
+### Runtime State
+
+- `story_path`
+- `story_key`
+- `review_continuation`
+- `sprint_status_summary`
+- `execution_mode_requested`
+- `execution_mode_resolved`
+- `worker_run_dir`
+- `worker_manifest_file`
+- `implementation_handoff_file`
+- `failed_workers`
+
+### Subagent Orchestration Contract
+
+- The parent agent is the only orchestrator. Subagents do not spawn additional subagents.
+- Prefer `subagent` execution when runtime support exists or the user explicitly asks for multiple agents, subagents, or parallel implementation.
+- Fall back to `sequential` execution when capability probing shows subagents are unavailable.
+- Use subagents only for bounded responsibilities:
+  - read-only context scouting
+  - implementation of a disjoint code slice
+  - test authoring for a disjoint test slice
+  - validation or handoff summarization
+- If multiple workers edit code in parallel, their write scopes must not overlap.
+- The parent agent must avoid reading deep source sets before delegating. Ask worker subagents for distilled summaries only.
+- Persist worker artifacts under `{implementation_artifacts}/dev-story-output/<story-key-or-run-id>/`.
+- Every worker must return a structured JSON envelope so the parent can merge results deterministically:
+
+```json
+{
+  "worker": "context-scout|implementation|test|quality|handoff",
+  "status": "ok|blocked|failed|no_changes",
+  "summary": "one short paragraph",
+  "files_touched": ["relative/path"],
+  "tests_run": ["command or test id"],
+  "story_updates_recommended": {
+    "file_list": ["relative/path"],
+    "completion_notes": ["note"],
+    "change_log": ["entry"],
+    "debug_log": ["note"]
+  },
+  "risks": ["remaining risk"],
+  "blocking_questions": ["question if blocked"]
+}
+```
 
 ---
 
@@ -47,7 +98,7 @@ Load config from `{project-root}/_bmad/bmm/config.yaml` and resolve:
   <critical>Absolutely DO NOT stop because of "milestones", "significant progress", or "session boundaries". Continue in a single execution
     until the story is COMPLETE (all ACs satisfied and all tasks/subtasks checked) UNLESS a HALT condition is triggered or the USER gives
     other instruction.</critical>
-  <critical>Do NOT schedule a "next session" or request review pauses unless a HALT condition applies. Only Step 6 decides completion.</critical>
+  <critical>Do NOT schedule a "next session" or request review pauses unless a HALT condition applies. Only Step 9 decides completion.</critical>
   <critical>User skill level ({user_skill_level}) affects conversation style ONLY, not code updates.</critical>
 
   <step n="1" goal="Find next ready story and load it" tag="sprint-status">
@@ -64,6 +115,7 @@ Load config from `{project-root}/_bmad/bmm/config.yaml` and resolve:
       <action>Load the FULL file: {{sprint_status}}</action>
       <action>Read ALL lines from beginning to end - do not skip any content</action>
       <action>Parse the development_status section completely to understand story order</action>
+      <action>Build `{{sprint_status_summary}}` from the parsed development_status entries so user-facing status output has a concrete summary</action>
 
       <action>Find the FIRST story (by reading in order from top to bottom) where:
         - Key matches pattern: number-number-name (e.g., "1-2-user-auth")
@@ -175,13 +227,19 @@ Load config from `{project-root}/_bmad/bmm/config.yaml` and resolve:
   <step n="2" goal="Load project context and story information">
     <critical>Load all available context to inform implementation</critical>
 
+    <action>Determine execution preference from this run: explicit user wording about subagents/parallel work → optional `dev_story_execution_mode` config → `auto`</action>
+    <action>When capability probing is enabled, use runtime support (for example `runtime.canLaunchSubagents?.()`) to resolve `execution_mode_resolved` to `subagent` or `sequential`</action>
+    <action>Prepare worker artifact paths under `{implementation_artifacts}/dev-story-output/`, including `worker_run_dir`, `worker_manifest_file`, and `implementation_handoff_file`</action>
     <action>Load {project_context} for coding standards and project-wide patterns (if exists)</action>
     <action>Parse sections: Story, Acceptance Criteria, Tasks/Subtasks, Dev Notes, Dev Agent Record, File List, Change Log, Status</action>
     <action>Load comprehensive context from story file's Dev Notes section</action>
     <action>Extract developer guidance from Dev Notes: architecture requirements, previous learnings, technical specifications</action>
     <action>Use enhanced story context to inform implementation decisions and approaches</action>
+    <action if="execution_mode_resolved == 'subagent'">Isolate deep exploration in read-only subagents where useful and require distilled summaries only. Do not offload story file edits or sprint-status handling.</action>
     <output>✅ **Context Loaded**
       Story and project context available for implementation
+
+      **Execution Mode:** {{execution_mode_resolved}}
     </output>
   </step>
 
@@ -264,13 +322,21 @@ Load config from `{project-root}/_bmad/bmm/config.yaml` and resolve:
     <critical>FOLLOW THE STORY FILE TASKS/SUBTASKS SEQUENCE EXACTLY AS WRITTEN - NO DEVIATION</critical>
 
     <action>Review the current task/subtask from the story file - this is your authoritative implementation guide</action>
+    <action>Decide the safest execution pattern for this specific task:
+      - `sequential` inline implementation when the work is tightly coupled
+      - one bounded implementation subagent when a clean file ownership boundary exists
+      - multiple parallel workers only when write scopes are disjoint and the current task can be decomposed without violating story task order
+    </action>
     <action>Plan implementation following red-green-refactor cycle</action>
+    <action if="execution_mode_resolved == 'subagent'">Before delegating, capture the exact task slice, allowed files, acceptance criteria covered, and the required JSON output contract for each worker</action>
+    <action if="execution_mode_resolved == 'subagent'">Optionally launch a read-only `context-scout` worker for architecture or dependency clarification. Its output must be a distilled summary only.</action>
 
     <!-- RED PHASE -->
     <action>Write FAILING tests first for the task/subtask functionality</action>
     <action>Confirm tests fail before implementation - this validates test correctness</action>
 
     <!-- GREEN PHASE -->
+    <action if="execution_mode_resolved == 'subagent' and task has a bounded code slice">Launch an `implementation` worker with explicit ownership of the relevant code files. The parent agent remains responsible for integration and story progress tracking.</action>
     <action>Implement MINIMAL code to make tests pass</action>
     <action>Run tests to confirm they now pass</action>
     <action>Handle error conditions and edge cases as specified in task/subtask</action>
@@ -279,6 +345,7 @@ Load config from `{project-root}/_bmad/bmm/config.yaml` and resolve:
     <action>Improve code structure while keeping tests green</action>
     <action>Ensure code follows architecture patterns and coding standards from Dev Notes</action>
 
+    <action if="execution_mode_resolved == 'subagent'">Collect worker outputs into `worker_manifest_file`, merge code/test results, and record any worker-reported risks or blockers before deciding the task is complete</action>
     <action>Document technical approach and decisions in Dev Agent Record → Implementation Plan</action>
 
     <action if="new dependencies required beyond story specifications">HALT: "Additional dependencies need user approval"</action>
@@ -296,6 +363,7 @@ Load config from `{project-root}/_bmad/bmm/config.yaml` and resolve:
     <action>Add integration tests for component interactions specified in story requirements</action>
     <action>Include end-to-end tests for critical user flows when story requirements demand them</action>
     <action>Cover edge cases and error handling scenarios identified in story Dev Notes</action>
+    <action if="execution_mode_resolved == 'subagent' and test files can be owned independently">A dedicated `test` worker may author or expand test files, but only within explicit non-overlapping test ownership boundaries</action>
   </step>
 
   <step n="7" goal="Run validations and tests">
@@ -304,6 +372,7 @@ Load config from `{project-root}/_bmad/bmm/config.yaml` and resolve:
     <action>Run the new tests to verify implementation correctness</action>
     <action>Run linting and code quality checks if configured in project</action>
     <action>Validate implementation meets ALL story acceptance criteria; enforce quantitative thresholds explicitly</action>
+    <action if="execution_mode_resolved == 'subagent'">Optionally launch bounded `quality` workers in parallel for acceptance-criteria validation and regression-risk scanning. They return structured JSON findings; the parent decides fixes and completion.</action>
     <action if="regression tests fail">STOP and fix before continuing - identify breaking changes immediately</action>
     <action if="new tests fail">STOP and fix before continuing - ensure implementation correctness</action>
   </step>
@@ -335,6 +404,7 @@ Load config from `{project-root}/_bmad/bmm/config.yaml` and resolve:
     <!-- ONLY MARK COMPLETE IF ALL VALIDATION PASS -->
     <check if="ALL validation gates pass AND tests ACTUALLY exist and pass">
       <action>ONLY THEN mark the task (and subtasks) checkbox with [x]</action>
+      <action>Merge any worker-recommended File List, Completion Notes, Change Log, and Debug Log updates into the story file. Workers do not edit the story file directly.</action>
       <action>Update File List section with ALL new, modified, or deleted files (paths relative to repo root)</action>
       <action>Add completion notes to Dev Agent Record summarizing what was ACTUALLY implemented and tested</action>
     </check>
@@ -364,6 +434,7 @@ Load config from `{project-root}/_bmad/bmm/config.yaml` and resolve:
     <action>Run the full regression suite (do not skip)</action>
     <action>Confirm File List includes every changed file</action>
     <action>Execute enhanced definition-of-done validation</action>
+    <action>Prepare `implementation_handoff_file` under `worker_run_dir` summarizing: story key, changed files, tests run, unresolved risks, notable design decisions, and recommended review focus areas</action>
     <action>Update the story Status to: "review"</action>
 
     <!-- Enhanced Definition of Done Validation -->
@@ -417,6 +488,7 @@ Load config from `{project-root}/_bmad/bmm/config.yaml` and resolve:
     <action>Communicate to {user_name} that story implementation is complete and ready for review</action>
     <action>Summarize key accomplishments: story ID, story key, title, key changes made, tests added, files modified</action>
     <action>Provide the story file path and current status (now "review")</action>
+    <action>If `implementation_handoff_file` exists, provide its path and recommend downstream review workflows use it together with the story file</action>
 
     <action>Based on {user_skill_level}, ask if user needs any explanations about:
       - What was implemented and how it works
@@ -437,6 +509,7 @@ Load config from `{project-root}/_bmad/bmm/config.yaml` and resolve:
       - Verify all acceptance criteria are met
       - Ensure deployment readiness if applicable
       - Run `code-review` workflow for peer review
+      - If multiple reviewer agents are available, hand them the story file plus `implementation_handoff_file`
       - Optional: If Test Architect module installed, run `/bmad:tea:automate` to expand guardrail tests
     </action>
 

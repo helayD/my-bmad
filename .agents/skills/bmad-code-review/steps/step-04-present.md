@@ -1,5 +1,16 @@
 ---
 deferred_work_file: '{implementation_artifacts}/deferred-work.md'
+triaged_findings_file: '' # set at runtime: normalized + triaged findings
+raw_findings_file: '' # set at runtime: reviewer artifact manifest
+review_run_dir: '' # set at runtime: artifact directory for this review run
+date: '' # set at runtime: current datetime loaded during workflow initialization
+new_status: '' # set at runtime: "done" | "in-progress"
+decision_needed_count: 0 # set at runtime
+patch_count: 0 # set at runtime
+defer_count: 0 # set at runtime
+dismiss_count: 0 # set at runtime
+fixed_count: 0 # set at runtime
+action_count: 0 # set at runtime
 ---
 
 # Step 4: Present and Act
@@ -8,9 +19,22 @@ deferred_work_file: '{implementation_artifacts}/deferred-work.md'
 
 - YOU MUST ALWAYS SPEAK OUTPUT in your Agent communication style with the config `{communication_language}`
 - When `{spec_file}` is set, always write findings to the story file before offering action choices.
-- `decision-needed` findings must be resolved before handling `patch` findings.
+- `decision_needed` findings must be resolved before handling `patch` findings.
 
 ## INSTRUCTIONS
+
+### 0. Load triage artifacts
+
+If `{triaged_findings_file}` exists, load it first and use it as the canonical source for counts and finding buckets. If it does not exist, fall back to the in-memory triage state from Step 3.
+
+After loading, compute and persist:
+
+- `{decision_needed_count}` = number of `decision_needed` findings
+- `{patch_count}` = number of `patch` findings
+- `{defer_count}` = number of `defer` findings
+- `{dismiss_count}` = dismissed finding count from Step 3
+- initialize `{fixed_count}` = `0`
+- initialize `{action_count}` = `0`
 
 ### 1. Clean review shortcut
 
@@ -20,7 +44,7 @@ If zero findings remain after triage (all dismissed or none raised): state that 
 
 If `{spec_file}` exists and contains a Tasks/Subtasks section, append a `### Review Findings` subsection. Write all findings in this order:
 
-1. **`decision-needed`** findings (unchecked):
+1. **`decision_needed`** findings (unchecked):
    `- [ ] [Review][Decision] <Title> — <Detail>`
 
 2. **`patch`** findings (unchecked):
@@ -35,12 +59,13 @@ Also append each `defer` finding to `{deferred_work_file}` under a heading `## D
 
 Announce what was written:
 
-> **Code review complete.** <D> `decision-needed`, <P> `patch`, <W> `defer`, <R> dismissed as noise.
+> **Code review complete.** `{decision_needed_count}` `decision_needed`, `{patch_count}` `patch`, `{defer_count}` `defer`, `{dismiss_count}` dismissed as noise.
 
 If `{spec_file}` is set, add: `Findings written to the review findings section in {spec_file}.`
 Otherwise add: `Findings are listed above. No story file was provided, so nothing was persisted.`
+If `{review_run_dir}` is set, add: `Raw reviewer artifacts saved under {review_run_dir}.`
 
-### 4. Resolve decision-needed findings
+### 4. Resolve `decision_needed` findings
 
 If `decision_needed` findings exist, present each one with its detail and the options available. The user must decide — the correct fix is ambiguous without their input. Walk through each finding (or batch related ones) and get the user's call. Once resolved, each becomes a `patch`, `defer`, or is dismissed.
 
@@ -52,36 +77,37 @@ If the user chooses to defer, ask: Quick one-line reason for deferring this item
 
 If `patch` findings exist (including any resolved from step 4), HALT. Ask the user:
 
-If `{spec_file}` is set, present all three options (if >3 `patch` findings exist, also show option 0):
+If `{spec_file}` is set, present all three options (if `{patch_count}` > 3, also show option 0):
 
-> **How would you like to handle the <Z> `patch` findings?**
+> **How would you like to handle the `{patch_count}` `patch` findings?**
 > 0. **Batch-apply all** — automatically fix every non-controversial patch (recommended when there are many)
 > 1. **Fix them automatically** — I will apply fixes now
 > 2. **Leave as action items** — they are already in the story file
 > 3. **Walk through each** — let me show details before deciding
 
-If `{spec_file}` is **not** set, present only options 1 and 3 (omit option 2 — findings were not written to a file). If >3 `patch` findings exist, also show option 0:
+If `{spec_file}` is **not** set, present only the "fix automatically" and "walk through each" choices (omit the "leave as action items" choice because nothing was written to a file). If `{patch_count}` > 3, also show option 0:
 
-> **How would you like to handle the <Z> `patch` findings?**
+> **How would you like to handle the `{patch_count}` `patch` findings?**
 > 0. **Batch-apply all** — automatically fix every non-controversial patch (recommended when there are many)
 > 1. **Fix them automatically** — I will apply fixes now
 > 2. **Walk through each** — let me show details before deciding
 
 **HALT** — I am waiting for your numbered choice. Reply with only the number (or "0" for batch). Do not proceed until you select an option.
 
-- **Option 0** (only when >3 findings): Apply all non-controversial patches without per-finding confirmation. Skip any finding that requires judgment. Present a summary of changes made and any skipped findings.
-- **Option 1**: Apply each fix. After all patches are applied, present a summary of changes made. If `{spec_file}` is set, check off the items in the story file.
-- **Option 2** (only when `{spec_file}` is set): Done — findings are already written to the story.
-- **Walk through each**: Present each finding with full detail, diff context, and suggested fix. After walkthrough, re-offer the applicable options above.
+- **Option 0** (only when >3 findings): Apply all non-controversial patches without per-finding confirmation. Skip any finding that requires judgment. Set `{fixed_count}` to the number fixed and `{action_count}` to the number skipped. Present a summary of changes made and any skipped findings.
+- **Option 1**: Apply each fix. After all patches are applied, set `{fixed_count}` to the number fixed, set `{action_count}` to any unresolved remainder, and present a summary of changes made. If `{spec_file}` is set, check off the items in the story file.
+- **Option 2** (only when `{spec_file}` is set): Done — findings are already written to the story. Set `{fixed_count}` = `0` and `{action_count}` = `{patch_count}`.
+- **Option 3** (only when `{spec_file}` is set): Walk through each finding with full detail, diff context, and a suggested fix. After walkthrough, re-offer the applicable options above.
+- **Option 2** (when `{spec_file}` is not set): Walk through each finding with full detail, diff context, and a suggested fix. After walkthrough, re-offer the applicable options above.
 
   **HALT** — I am waiting for your numbered choice. Reply with only the number (or "0" for batch). Do not proceed until you select an option.
 
 **✅ Code review actions complete**
 
-- Decision-needed resolved: <D>
-- Patches handled: <P>
-- Deferred: <W>
-- Dismissed: <R>
+- `decision_needed` resolved: `{decision_needed_count}`
+- Patches handled: `{fixed_count}`
+- Deferred: `{defer_count}`
+- Dismissed: `{dismiss_count}`
 
 ### 6. Update story status and sync sprint tracking
 
@@ -89,7 +115,7 @@ Skip this section if `{spec_file}` is not set.
 
 #### Determine new status based on review outcome
 
-- If all `decision-needed` and `patch` findings were resolved (fixed or dismissed) AND no unresolved HIGH/MEDIUM issues remain: set `{new_status}` = `done`. Update the story file Status section to `done`.
+- If all `decision_needed` and `patch` findings were resolved (fixed or dismissed) AND no unresolved HIGH/MEDIUM issues remain: set `{new_status}` = `done`. Update the story file Status section to `done`.
 - If `patch` findings were left as action items, or unresolved issues remain: set `{new_status}` = `in-progress`. Update the story file Status section to `in-progress`.
 
 Save the story file.
@@ -112,10 +138,10 @@ If `{sprint_status}` file does not exist, note that story status was updated in 
 > **Review Complete!**
 >
 > **Story Status:** `{new_status}`
-> **Issues Fixed:** <fixed_count>
-> **Action Items Created:** <action_count>
-> **Deferred:** <W>
-> **Dismissed:** <R>
+> **Issues Fixed:** `{fixed_count}`
+> **Action Items Created:** `{action_count}`
+> **Deferred:** `{defer_count}`
+> **Dismissed:** `{dismiss_count}`
 
 ### 7. Next steps
 

@@ -1,0 +1,38 @@
+{
+  "layer": "blind",
+  "status": "ok",
+  "summary": "Diff-only review found three user-visible risks around legacy handoff visibility, stale analysis warnings, and async handoff preview races.",
+  "findings": [
+    {
+      "title": "Legacy execution-ready requests still read as empty handoff state",
+      "detail": "The new project-level query returns stored PlanningRequest summary fields only, and the detail builder computes the execution-ready problem banner before it enriches from Task rows. In the legacy/drift case where taskHandoffSummary or derivedTaskCount is empty but Task.planningRequestId rows exist, the UI will still tell the user there are no visible derived tasks even though real tasks can be resolved from the database.",
+      "location": "src/lib/planning/queries.ts:129",
+      "severity": "high",
+      "evidence": "getPlanningRequestsByProjectId() just maps planningRequest rows, while buildPlanningRequestDetailViews() calls resolvePlanningRequestProblemSummary(request) before derivedTasks are built.",
+      "rule_or_ac": "Story 3.5 Task 1.4 / 1.7 / 4.5",
+      "trigger_condition": "execution-ready request with missing or stale handoff summary fields but real tasks linked by planningRequestId",
+      "potential_consequence": "Users are shown the wrong readiness/count state for the exact legacy gap this story was supposed to make visible."
+    },
+    {
+      "title": "Analysis-stalled warning keys off request creation time",
+      "detail": "resolvePlanningRequestProblemSummary() marks an analyzing request as stalled based on createdAt. If an older request is retried back into analyzing, it will immediately render the warning even when the new analysis attempt just started.",
+      "location": "src/lib/planning/types.ts:700",
+      "severity": "medium",
+      "evidence": "hasPlanningAnalysisStalled() receives createdAt and compares it to Date.now() with a 5 minute threshold.",
+      "rule_or_ac": "Story 3.5 Task 1.6",
+      "trigger_condition": "retrying or reusing an older planning request that re-enters analyzing",
+      "potential_consequence": "The issue banner and suggested action become false positives, so the chain view stops being trustworthy."
+    },
+    {
+      "title": "Handoff preview dialog still accepts stale async responses",
+      "detail": "The new handoff preview flow does not track the active request or a request token. If preview A returns after the dialog is closed or after preview B starts, A's response will overwrite the dialog state and selections.",
+      "location": "src/components/planning/planning-request-composer.tsx:630",
+      "severity": "medium",
+      "evidence": "handleOpenHandoff() always commits the latest resolved result into handoffDialogState without checking whether the dialog/request is still current.",
+      "rule_or_ac": "Story 3.5 Task 5.5",
+      "trigger_condition": "quickly switching planning requests or closing/reopening the handoff dialog while network/server actions are still in flight",
+      "potential_consequence": "Users can confirm the wrong preview or see one request's candidates rendered under another request."
+    }
+  ],
+  "parsing_notes": []
+}
