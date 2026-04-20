@@ -106,6 +106,12 @@ const baseDetail = {
       nextStep: "等待手动派发。",
       queuePosition: 1,
       readyState: "manual" as const,
+      currentAgentRunId: "run-1",
+      selectedAgentType: "codex" as const,
+      selectedAgentLabel: "Codex",
+      selectionReasonSummary: "当前任务范围明确，适合直接编码落地。",
+      agentRunCount: 1,
+      rerouteCount: 0,
       sourceArtifactId: "artifact-task-1",
       sourceArtifactName: "落地用户反馈入口",
       sourceArtifactPath: "_bmad-output/implementation-artifacts/3-5-story.md#task-1",
@@ -148,6 +154,11 @@ describe("PlanningRequestDetailSheet", () => {
     expect(markup).toContain("/workspace/demo-workspace/project/demo-project?artifactId=artifact-prd-1#artifact-tree");
     expect(markup).toContain("/workspace/demo-workspace/project/demo-project?artifactId=artifact-task-1#artifact-tree");
     expect(markup).toContain("补齐确认后反馈");
+    expect(markup).toContain("来源用户故事：Story 3.5");
+    expect(markup).toContain("Codex");
+    expect(markup).toContain("当前 Run：run-1");
+    expect(markup).toContain("Run 历史：1");
+    expect(markup).toContain("路由原因：当前任务范围明确，适合直接编码落地。");
   });
 
   it("degrades honestly for direct-execution requests", () => {

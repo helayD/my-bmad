@@ -7,6 +7,13 @@
  * 3. Second short transaction: persist ExecutionSession, update AgentRun/Task truth.
  *    - If this step fails: execute compensation (close the tmux session).
  *
+ * Boundary integration (§4.6 Task 3):
+ * - Before tmux session creation, prepare the execution context (allowlist scan).
+ * - Canonical project root must be validated via realpath() — symlink root is rejected.
+ * - Boundary profile is stored in ExecutionSession.metadata.
+ * - Fatal boundary failures block session creation and record honest audit events.
+ * - Non-fatal violations are recorded but do not block launch.
+ *
  * Precondition checks (§2.2–2.4):
  * - Task status must be "dispatched" with a matching currentAgentRunId.
  * - Project must have a valid local execution root (sourceType = "local").
@@ -31,15 +38,23 @@ import {
   createSession,
   killSession,
   buildSessionName,
-  TMUX_ERROR_CODES,
   type TmuxAdapterError,
 } from "@/lib/execution/tmux";
 import {
   resolveProjectExecutionRoot,
+  ExecutionPreconditionError,
 } from "@/lib/execution/project-root";
 import {
   type TaskAgentType,
 } from "@/lib/tasks";
+import {
+  buildBoundaryProfilePayload,
+  EXECUTION_BOUNDARY_VIOLATION_CODES,
+} from "./boundary";
+import {
+  prepareExecutionContext,
+  buildBoundaryProfileFromContext,
+} from "./context";
 
 export class LaunchServiceError extends Error {
   code: string;
@@ -165,36 +180,60 @@ export async function launchTask(input: LaunchTaskInput): Promise<LaunchTaskResu
   }
 
   // Resolve project execution root.
-  const execRoot = await resolveProjectExecutionRoot(task.project);
-  if (!execRoot) {
-    await recordLaunchFailure({
-      task,
-      agentRunId: input.agentRunId,
-      errorCode: "EXECUTION_NO_LOCAL_REPO",
-      errorMessage: "当前项目还没有可用于 self-hosted 执行的本地目录。",
-    });
-    throw new LaunchServiceError("EXECUTION_NO_LOCAL_REPO", "当前项目还没有可用于 self-hosted 执行的本地目录。");
+  let execRoot: NonNullable<Awaited<ReturnType<typeof resolveProjectExecutionRoot>>>;
+  try {
+    const result = await resolveProjectExecutionRoot(task.project);
+    if (!result) {
+      await recordLaunchFailure({
+        task,
+        agentRunId: input.agentRunId,
+        errorCode: "EXECUTION_NO_LOCAL_REPO",
+        errorMessage: "当前项目还没有可用于 self-hosted 执行的本地目录。",
+      });
+      throw new LaunchServiceError("EXECUTION_NO_LOCAL_REPO", "当前项目还没有可用于 self-hosted 执行的本地目录。");
+    }
+    execRoot = result;
+  } catch (error) {
+    if (error instanceof LaunchServiceError) throw error;
+    if (error instanceof ExecutionPreconditionError) {
+      await recordLaunchFailure({
+        task,
+        agentRunId: input.agentRunId,
+        errorCode: error.code,
+        errorMessage: error.humanMessage,
+      });
+      throw new LaunchServiceError(error.code, error.humanMessage);
+    }
+    throw error;
   }
 
   // Verify the resolved path actually exists on disk — tmux will silently
   // fall back to an unintended directory if cwd is invalid.
   const { existsSync } = await import("node:fs");
-  if (!existsSync(execRoot.absolutePath)) {
+  if (!existsSync(execRoot.canonicalPath)) {
     await recordLaunchFailure({
       task,
       agentRunId: input.agentRunId,
-      errorCode: "EXECUTION_ROOT_NOT_FOUND",
-      errorMessage: `项目执行目录不存在或无访问权限：${execRoot.absolutePath}`,
+      errorCode: EXECUTION_BOUNDARY_VIOLATION_CODES.ROOT_UNAVAILABLE,
+      errorMessage: `项目执行目录不存在或无访问权限：${execRoot.canonicalPath}`,
     });
     throw new LaunchServiceError(
-      "EXECUTION_ROOT_NOT_FOUND",
-      `项目执行目录不存在或无访问权限：${execRoot.absolutePath}`,
+      EXECUTION_BOUNDARY_VIOLATION_CODES.ROOT_UNAVAILABLE,
+      `项目执行目录不存在或无访问权限：${execRoot.canonicalPath}`,
     );
   }
 
+  // ── Boundary preparation: build allowlist context at real launch time ─────────
+  // This is always re-computed on launch, not reused from dispatch (avoids stale paths).
+  const boundaryResult = await prepareBoundary({
+    workspaceId: input.workspaceId,
+    projectId: input.projectId,
+    execRoot,
+  });
+
   // Resolve agent launch command.
   const launchConfig = resolveAgentLaunchCommand(run.agentType as TaskAgentType, {
-    projectRoot: execRoot.absolutePath,
+    projectRoot: execRoot.canonicalPath,
   });
 
   // ── Phase 1: short transaction — write intermediate state ───────────────────
@@ -229,7 +268,7 @@ export async function launchTask(input: LaunchTaskInput): Promise<LaunchTaskResu
   try {
     tmuxResult = await createSession(
       sessionName,
-      execRoot.absolutePath,
+      execRoot.canonicalPath,
       launchConfig.launchCommand.command,
       launchConfig.launchCommand.args,
     );
@@ -259,6 +298,10 @@ export async function launchTask(input: LaunchTaskInput): Promise<LaunchTaskResu
 
   // tmux succeeded — commit ExecutionSession and update run/task truth.
   try {
+    // Build boundary profile for session metadata (even failures get a profile).
+    const boundaryProfile = boundaryResult.profile;
+    const boundaryMetadata = buildBoundaryProfilePayload(boundaryProfile);
+
     const session = await prisma.executionSession.create({
       data: {
         workspaceId: input.workspaceId,
@@ -271,9 +314,10 @@ export async function launchTask(input: LaunchTaskInput): Promise<LaunchTaskResu
         status: "running",
         startedAt: now,
         metadata: {
-          projectRoot: execRoot.absolutePath,
+          projectRoot: execRoot.canonicalPath,
           agentCommand: launchConfig.launchCommand.command,
           agentArgs: launchConfig.launchCommand.args,
+          ...(boundaryMetadata as object),
         } satisfies Prisma.InputJsonValue,
       },
     });
@@ -325,7 +369,7 @@ export async function launchTask(input: LaunchTaskInput): Promise<LaunchTaskResu
             sessionName: tmuxResult!.sessionName,
             processPid: tmuxResult!.panePid,
             transport: "tmux",
-            projectRoot: execRoot.absolutePath,
+            projectRoot: execRoot.canonicalPath,
           },
         }),
       }),
@@ -341,7 +385,7 @@ export async function launchTask(input: LaunchTaskInput): Promise<LaunchTaskResu
       processPid: tmuxResult.panePid,
       transport: "tmux",
     };
-  } catch (error) {
+  } catch {
     // Phase 3 failed — compensate: close the tmux session we just created.
     const compError = await killSession(sessionName).catch((e: unknown) => e);
     if (compError) {
@@ -441,4 +485,59 @@ function toRecord(value: unknown): Record<string, unknown> {
     return {};
   }
   return value as Record<string, unknown>;
+}
+
+// ── Boundary preparation ─────────────────────────────────────────────────────────
+
+interface BoundaryPrepareResult {
+  profile: ReturnType<typeof buildBoundaryProfileFromContext>;
+}
+
+/**
+ * Prepare execution boundary at real launch time.
+ * Always re-resolves project root and scans context — never reuses stale dispatch-time snapshots.
+ *
+ * 1. Resolve and canonicalize project root (realpath + lstat symlink check).
+ * 2. Build allowlist context snapshot.
+ * 3. Return boundary profile (success or failure).
+ *
+ * Fatal errors (root unavailable, symlink root) are surfaced as LaunchServiceError
+ * so they block session creation.
+ */
+async function prepareBoundary(opts: {
+  workspaceId: string;
+  projectId: string;
+  execRoot: NonNullable<Awaited<ReturnType<typeof resolveProjectExecutionRoot>>>;
+}): Promise<BoundaryPrepareResult> {
+  const { workspaceId, projectId, execRoot } = opts;
+
+  // Build allowlist roots — scan from the canonical project root.
+  // We scan the whole project root ([""] means start from project root).
+  const allowedRoots = [""];
+  const sensitiveMatchers = undefined; // Use default matchers from sensitive-paths.ts
+
+  const contextResult = await prepareExecutionContext({
+    canonicalRoot: execRoot.canonicalPath,
+    allowedRoots,
+    maxFileCount: execRoot.maxFileCount,
+    maxDepth: execRoot.maxDepth,
+    maxFileSizeBytes: execRoot.maxFileSizeBytes,
+    sensitiveMatchers,
+  });
+
+  const profile = buildBoundaryProfileFromContext({
+    workspaceId,
+    projectId,
+    canonicalRoot: execRoot.canonicalPath,
+    displayRoot: execRoot.displayPath,
+    contextResult,
+    allowedRoots,
+    sensitiveMatchers,
+    maxFileCount: execRoot.maxFileCount,
+    maxDepth: execRoot.maxDepth,
+    maxFileSizeBytes: execRoot.maxFileSizeBytes,
+    preparedBy: "supervisor",
+  });
+
+  return { profile };
 }

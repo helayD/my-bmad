@@ -518,8 +518,9 @@ describe("executePlanningRequest", () => {
     expect(secondResult.didExecute).toBe(false);
     expect(mockExecutePlanningSkill).toHaveBeenCalledTimes(1);
 
-    if (releaseExecution) {
-      releaseExecution();
+    const release = releaseExecution as unknown as (() => void) | null;
+    if (release) {
+      release();
     }
 
     const firstResult = await firstRun;

@@ -1,5 +1,5 @@
 # generated: 2026-04-04T22:05:00+08:00
-# last_updated: 2026-04-12T21:07:31+08:00
+# last_updated: 2026-04-19T15:53:32+08:00
 # project: my-bmad
 # project_key: NOKEY
 # tracking_system: file-system
@@ -17,7 +17,7 @@
 # - Dev 将 Story 移到 review，然后运行 code-review（建议换 LLM 以获得新视角）
 
 generated: "2026-04-04T22:05:00+08:00"
-last_updated: "2026-04-12T21:07:31+08:00"
+last_updated: "2026-04-20T00:00:00+08:00"
 project: my-bmad
 project_key: NOKEY
 tracking_system: file-system
@@ -39,7 +39,7 @@ development_status:
 
   # ── Epic 2: BMAD 工件上下文、映射与执行入口 ──
   epic-2: in-progress
-  2-1-BMAD工件层级模型与解析引擎: in-progress
+  2-1-BMAD工件层级模型与解析引擎: review
   2-2-从BMAD工件发起执行任务: review
   2-3-执行任务与来源工件的追踪映射: in-progress
   2-4-查看工件关联的执行历史状态与产物: in-progress
@@ -51,18 +51,18 @@ development_status:
   3-1-自然语言目标输入与规划请求创建: review
   3-2-规划意图识别与Agent-Skill选择: review
   3-3-规划执行与BMAD工件生成: review
-  3-4-规划结果自动衔接执行链路: ready-for-dev
+  3-4-规划结果自动衔接执行链路: review
   3-5-规划到执行派发的完整链路可见性: review
   epic-3-回顾: optional
 
   # ── Epic 4: 任务派发与 Self-Hosted 执行启动 ──
-  epic-4: backlog
-  4-1-任务定义与执行意图提交: backlog
-  4-2-Agent自动路由与选择: backlog
-  4-3-路由策略调整与任务重新派发: backlog
-  4-4-tmux后台执行会话创建与管理: backlog
-  4-5-多任务并发执行与隔离: backlog
-  4-6-执行边界与上下文安全控制: backlog
+  epic-4: in-progress
+  4-1-任务定义与执行意图提交: review
+  4-2-Agent自动路由与选择: done
+  4-3-路由策略调整与任务重新派发: review
+  4-4-tmux后台执行会话创建与管理: in-review
+  4-5-多任务并发执行与隔离: completed
+  4-6-执行边界与上下文安全控制: completed
   epic-4-回顾: optional
 
   # ── Epic 5: 执行控制塔：状态、日志、心跳与动态交互 ──

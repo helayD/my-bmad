@@ -1,10 +1,15 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { ArrowLeft, ArrowUpRight, Sparkles } from "lucide-react";
+import { TaskDispatchCard } from "@/components/tasks/task-dispatch-card";
+import { TaskRedispatchCard } from "@/components/tasks/task-redispatch-card";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
+  EXECUTION_SESSION_STATUS_LABELS,
+  EXECUTION_QUEUE_REASON_LABELS,
   TASK_INTENT_LABELS,
+  TASK_PREFERRED_AGENT_TYPE_LABELS,
   TASK_PRIORITY_LABELS,
   TASK_STATUS_LABELS,
   WRITEBACK_OUTCOME_LABELS,
@@ -13,8 +18,13 @@ import {
   buildTaskSourcePathText,
   formatArtifactTypeLabel,
   resolveTaskCurrentActivity,
+  resolveTaskQueueLabel,
+  type ArtifactTaskHistoryAgentRun,
+  type ExecutionQueueSnapshot,
+  type ExecutionSessionView,
   type TaskSourceHierarchyItem,
   type TaskIntent,
+  type TaskPreferredAgentType,
   type TaskPriority,
   type TaskStatus,
   type TaskWritebackView,
@@ -22,12 +32,16 @@ import {
 
 interface TaskDetailViewProps {
   task: {
+    workspaceId: string;
+    projectId: string;
     id: string;
     title: string;
     goal: string;
     summary: string;
     priority: string;
     intent: string;
+    intentDetail?: string | null;
+    preferredAgentType?: string | null;
     status: string;
     currentStage: string;
     nextStep: string;
@@ -41,12 +55,43 @@ interface TaskDetailViewProps {
       type: string;
       filePath: string;
     } | null;
+    plannedDispatchState: "ready" | "selection-required" | "approval-required" | null;
+    workspaceRoutingPreference: "auto" | "manual";
+    dispatchPreviewAgentType: string | null;
+    dispatchPreviewAgentLabel: string | null;
+    dispatchPreviewReason: string | null;
+    agentRuns: ArtifactTaskHistoryAgentRun[];
+    routingReason: string | null;
     latestWriteback: TaskWritebackView | null;
+    currentSession: ExecutionSessionView | null;
+    /** Concurrency info passed from the server (populated when fetching task detail) */
+    queueSnapshot?: ExecutionQueueSnapshot | null;
+    workspaceActiveConcurrentTasks?: number;
+    projectActiveConcurrentTasks?: number;
+    maxConcurrentTasks?: number;
+    /** Boundary info passed from the server (populated from active ExecutionSession metadata) */
+    boundarySnapshot?: {
+      hasBoundaryProfile: boolean;
+      projectRootDisplayPath: string | null;
+      preparationSucceeded: boolean | null;
+      injectedFileCount: number;
+      sensitivePathCount: number;
+      lastViolationCode: string | null;
+      lastViolationSummary: string | null;
+      lastViolationFatal: boolean;
+      boundaryCurrentStage: string | null;
+      boundaryNextStep: string | null;
+    } | null;
   };
   sourceHierarchy: TaskSourceHierarchyItem[];
+  canManageExecution?: boolean;
 }
 
-export function TaskDetailView({ task, sourceHierarchy }: TaskDetailViewProps) {
+export function TaskDetailView({
+  task,
+  sourceHierarchy,
+  canManageExecution = false,
+}: TaskDetailViewProps) {
   const currentActivity = resolveTaskCurrentActivity({
     metadata: task.metadata,
     currentStage: task.currentStage,
@@ -82,9 +127,23 @@ export function TaskDetailView({ task, sourceHierarchy }: TaskDetailViewProps) {
           </section>
 
           <section className="space-y-2">
-            <h2 className="font-semibold">来源摘要</h2>
+            <h2 className="font-semibold">{task.sourceArtifact ? "来源摘要" : "任务摘要"}</h2>
             <p className="text-muted-foreground">{task.summary}</p>
           </section>
+
+          {task.intentDetail ? (
+            <section className="space-y-2">
+              <h2 className="font-semibold">执行意图补充</h2>
+              <p className="text-muted-foreground">{task.intentDetail}</p>
+            </section>
+          ) : null}
+
+          {task.preferredAgentType ? (
+            <section className="space-y-2">
+              <h2 className="font-semibold">偏好 Agent</h2>
+              <p className="text-muted-foreground">{resolvePreferredAgentLabel(task.preferredAgentType)}</p>
+            </section>
+          ) : null}
         </CardContent>
       </Card>
 
@@ -93,6 +152,90 @@ export function TaskDetailView({ task, sourceHierarchy }: TaskDetailViewProps) {
         <StatusCard label="系统正在做什么" value={currentActivity} icon={<Sparkles className="h-4 w-4" />} />
         <StatusCard label="下一步" value={task.nextStep} />
       </div>
+
+      {task.currentSession ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>执行会话</CardTitle>
+            <CardDescription>
+              任务在 Agent 运行时的会话信息，用于追踪 tmux 后台会话状态。
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4 text-sm">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge>{task.currentSession.transport}</Badge>
+              <Badge variant="outline">{task.currentSession.statusLabel}</Badge>
+            </div>
+            <div className="grid gap-3 rounded-lg border bg-muted/20 p-4 sm:grid-cols-2">
+              <DetailField label="会话名称" value={task.currentSession.sessionName} />
+              {task.currentSession.processPid ? (
+                <DetailField label="进程 PID" value={String(task.currentSession.processPid)} />
+              ) : (
+                <DetailField label="进程 PID" value="—" />
+              )}
+              <DetailField label="启动时间" value={task.currentSession.startedAt
+                ? new Date(task.currentSession.startedAt).toLocaleString("zh-CN", { hour12: false })
+                : "—"} />
+              {task.currentSession.terminatedAt ? (
+                <DetailField label="结束时间" value={new Date(task.currentSession.terminatedAt).toLocaleString("zh-CN", { hour12: false })} />
+              ) : task.currentSession.completedAt ? (
+                <DetailField label="完成时间" value={new Date(task.currentSession.completedAt).toLocaleString("zh-CN", { hour12: false })} />
+              ) : (
+                <DetailField label="结束时间" value="会话仍在运行" />
+              )}
+              {task.currentSession.terminationReasonSummary ? (
+                <DetailField
+                  label="终止原因"
+                  value={task.currentSession.terminationReasonSummary}
+                  className="sm:col-span-2"
+                />
+              ) : null}
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {task.queueSnapshot?.queuePosition !== null && task.queueSnapshot?.queuePosition !== undefined ? (
+        <ConcurrencyQueueCard
+          queueSnapshot={task.queueSnapshot}
+          workspaceActiveConcurrentTasks={task.workspaceActiveConcurrentTasks ?? 0}
+          projectActiveConcurrentTasks={task.projectActiveConcurrentTasks ?? 0}
+          maxConcurrentTasks={task.maxConcurrentTasks ?? 5}
+        />
+      ) : null}
+
+      {task.boundarySnapshot?.hasBoundaryProfile ? (
+        <ExecutionBoundaryCard boundary={task.boundarySnapshot} />
+      ) : null}
+
+      {task.status === "planned" ? (
+        <TaskDispatchCard
+          workspaceId={task.workspaceId}
+          projectId={task.projectId}
+          taskId={task.id}
+          taskTitle={task.title}
+          taskStatus={task.status}
+          canManageExecution={canManageExecution}
+          dispatchState={task.plannedDispatchState ?? "ready"}
+          workspaceRoutingPreference={task.workspaceRoutingPreference}
+          preferredAgentType={task.preferredAgentType}
+          previewAgentType={task.dispatchPreviewAgentType === "codex" || task.dispatchPreviewAgentType === "claude-code" ? task.dispatchPreviewAgentType : null}
+          previewAgentLabel={task.dispatchPreviewAgentLabel}
+          previewReasonSummary={task.dispatchPreviewReason}
+        />
+      ) : (
+        <TaskRedispatchCard
+          workspaceId={task.workspaceId}
+          projectId={task.projectId}
+          taskId={task.id}
+          taskTitle={task.title}
+          taskStatus={task.status}
+          currentActivity={currentActivity}
+          canManageExecution={canManageExecution}
+          routingReason={task.routingReason}
+          agentRuns={task.agentRuns}
+        />
+      )}
 
       <Card>
         <CardHeader>
@@ -171,7 +314,17 @@ export function TaskDetailView({ task, sourceHierarchy }: TaskDetailViewProps) {
                 </Link>
               ) : null}
             </>
-          ) : <p className="text-muted-foreground">该任务当前没有关联来源工件。</p>}
+          ) : (
+            <div className="grid gap-3 rounded-lg border bg-muted/20 p-4 sm:grid-cols-2">
+              <DetailField label="来源类型" value="项目上下文手动创建" />
+              <DetailField label="所属项目" value={task.project.name} />
+              <DetailField
+                label="说明"
+                value="该任务当前没有关联 Story / Epic 或其他来源工件，系统会基于项目边界保留目标、优先级和执行意图。"
+                className="sm:col-span-2"
+              />
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>
@@ -213,4 +366,152 @@ function resolvePriorityLabel(value: string) {
 
 function resolveIntentLabel(value: string) {
   return TASK_INTENT_LABELS[(value as TaskIntent) ?? "implement"] ?? value;
+}
+
+function resolvePreferredAgentLabel(value: string) {
+  return TASK_PREFERRED_AGENT_TYPE_LABELS[(value as TaskPreferredAgentType) ?? "auto"] ?? value;
+}
+
+function ConcurrencyQueueCard({
+  queueSnapshot,
+  workspaceActiveConcurrentTasks,
+  projectActiveConcurrentTasks,
+  maxConcurrentTasks,
+}: {
+  queueSnapshot: ExecutionQueueSnapshot;
+  workspaceActiveConcurrentTasks: number;
+  projectActiveConcurrentTasks: number;
+  maxConcurrentTasks: number;
+}) {
+  const reasonLabel = EXECUTION_QUEUE_REASON_LABELS[queueSnapshot.queueReasonCode] ?? queueSnapshot.queueReasonSummary;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>执行队列状态</CardTitle>
+        <CardDescription>
+          当前任务正在等待执行槽位，尚未真正启动 Agent。
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4 text-sm">
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant="outline">{reasonLabel}</Badge>
+          {queueSnapshot.queuePosition !== null && queueSnapshot.queuePosition !== undefined ? (
+            <Badge>等待顺位：{queueSnapshot.queuePosition}</Badge>
+          ) : null}
+        </div>
+        <div className="grid gap-3 rounded-lg border bg-muted/20 p-4 sm:grid-cols-2">
+          <DetailField
+            label="工作空间并发"
+            value={`${workspaceActiveConcurrentTasks}/${maxConcurrentTasks}`}
+          />
+          <DetailField
+            label="项目并发"
+            value={`${projectActiveConcurrentTasks} 个任务`}
+          />
+          {queueSnapshot.queuePosition !== null && queueSnapshot.queuePosition !== undefined ? (
+            <DetailField
+              label="等待顺位"
+              value={`第 ${queueSnapshot.queuePosition} 位`}
+            />
+          ) : null}
+          {queueSnapshot.queuedAt ? (
+            <DetailField
+              label="入队时间"
+              value={new Date(queueSnapshot.queuedAt).toLocaleString("zh-CN", { hour12: false })}
+            />
+          ) : null}
+          {queueSnapshot.estimatedWaitLabel ? (
+            <DetailField
+              label="预估等待"
+              value={queueSnapshot.estimatedWaitLabel}
+              className="sm:col-span-2"
+            />
+          ) : null}
+          {queueSnapshot.queueReasonSummary ? (
+            <DetailField
+              label="排队原因"
+              value={queueSnapshot.queueReasonSummary}
+              className="sm:col-span-2"
+            />
+          ) : null}
+        </div>
+        <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+          系统会在执行槽位空闲后自动启动此任务，无需手动重复操作。
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+interface ExecutionBoundaryCardProps {
+  boundary: NonNullable<TaskDetailViewProps["task"]["boundarySnapshot"]>;
+}
+
+function ExecutionBoundaryCard({ boundary }: ExecutionBoundaryCardProps) {
+  const isSuccess = boundary.preparationSucceeded === true && !boundary.lastViolationCode;
+  const hasViolation = !!boundary.lastViolationCode;
+
+  const stageLabel = boundary.boundaryCurrentStage ?? (
+    isSuccess
+      ? "已按项目边界准备执行环境"
+      : hasViolation
+        ? `检测到边界违规：${boundary.lastViolationSummary ?? ""}`
+        : "执行边界准备中"
+  );
+
+  const statusVariant = isSuccess ? "default" : hasViolation ? "destructive" : "secondary";
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-base">执行边界</CardTitle>
+          <Badge variant={statusVariant}>{stageLabel}</Badge>
+        </div>
+        <CardDescription>
+          平台已按项目边界限制上下文注入范围。
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          {boundary.projectRootDisplayPath ? (
+            <DetailField
+              label="执行根目录"
+              value={boundary.projectRootDisplayPath}
+              className="sm:col-span-2"
+            />
+          ) : null}
+          <DetailField
+            label="已注入文件数"
+            value={boundary.injectedFileCount > 0 ? `${boundary.injectedFileCount} 个文件` : "未注入"}
+          />
+          <DetailField
+            label="敏感路径"
+            value={boundary.sensitivePathCount > 0 ? `${boundary.sensitivePathCount} 个已跳过` : "无"}
+          />
+          {hasViolation ? (
+            <>
+              <DetailField
+                label="违规类型"
+                value={boundary.lastViolationCode ?? ""}
+              />
+              {boundary.lastViolationSummary ? (
+                <DetailField
+                  label="违规摘要"
+                  value={boundary.lastViolationSummary}
+                  className="sm:col-span-2"
+                />
+              ) : null}
+            </>
+          ) : null}
+        </div>
+        {boundary.boundaryNextStep ? (
+          <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+            {boundary.boundaryNextStep}
+          </div>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
 }

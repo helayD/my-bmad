@@ -123,9 +123,10 @@ function EpicHistoryView({ payload }: { payload: ArtifactTaskHistoryPayload }) {
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <DistributionCard label={ARTIFACT_EXECUTION_STATUS_LABELS.completed} value={payload.statusDistribution.completed} />
         <DistributionCard label={ARTIFACT_EXECUTION_STATUS_LABELS["in-progress"]} value={payload.statusDistribution.inProgress} />
+        <DistributionCard label={ARTIFACT_EXECUTION_STATUS_LABELS.dispatched} value={payload.statusDistribution.dispatched} />
         <DistributionCard label={ARTIFACT_EXECUTION_STATUS_LABELS.pending} value={payload.statusDistribution.pending} />
         <DistributionCard label={ARTIFACT_EXECUTION_STATUS_LABELS.failed} value={payload.statusDistribution.failed} />
       </div>
@@ -267,13 +268,28 @@ function HistoryItem({ entry }: { entry: ArtifactTaskHistoryEntry }) {
               {entry.agentRuns.map((run, index) => (
                 <div key={`${entry.taskId}-run-${run.id ?? index}`} className="rounded-lg border p-3">
                   <div className="flex flex-wrap items-center gap-2">
+                    <Badge>{run.isCurrent ? "当前 Run" : "历史 Run"}</Badge>
                     <Badge variant="outline">{run.agentTypeLabel}</Badge>
                     <Badge variant="outline">{run.statusLabel}</Badge>
+                    {run.id ? <Badge variant="outline">{run.id}</Badge> : null}
                   </div>
                   <div className="mt-3 grid gap-3 text-sm text-muted-foreground sm:grid-cols-2">
+                    <HistoryField label="创建时间" value={formatDateTime(run.createdAt ?? null, "时间待记录")} />
                     <HistoryField label="开始时间" value={formatDateTime(run.startedAt, TASK_EXECUTION_TIME_FALLBACK)} />
-                    <HistoryField label="结束时间" value={formatDateTime(run.completedAt, "尚未结束")} />
+                    <HistoryField
+                      label="结束时间"
+                      value={formatDateTime(run.terminatedAt ?? run.completedAt ?? run.supersededAt ?? null, "尚未结束")}
+                    />
+                    {run.replacesRunId ? (
+                      <HistoryField label="替代自 Run" value={run.replacesRunId} />
+                    ) : null}
                     <HistoryField label="执行摘要" value={run.summary} className="sm:col-span-2" />
+                    {run.selectionReasonSummary ? (
+                      <HistoryField label="路由原因" value={run.selectionReasonSummary} className="sm:col-span-2" />
+                    ) : null}
+                    {run.terminationReasonSummary ? (
+                      <HistoryField label="终止说明" value={run.terminationReasonSummary} className="sm:col-span-2" />
+                    ) : null}
                   </div>
                 </div>
               ))}

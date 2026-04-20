@@ -383,6 +383,9 @@ export function PlanningRequestDetailSheet({
                             </div>
                             <div className="flex flex-wrap gap-2">
                               <Badge variant="outline">{getTaskStatusLabel(task.status)}</Badge>
+                              {task.selectedAgentLabel ? (
+                                <Badge variant="outline">{task.selectedAgentLabel}</Badge>
+                              ) : null}
                               {task.readyState ? (
                                 <Badge variant="secondary">
                                   {getPlanningHandoffReadyStateLabel(task.readyState)}
@@ -398,8 +401,22 @@ export function PlanningRequestDetailSheet({
                               <span>队列顺位：{task.queuePosition}</span>
                             ) : null}
                             <span>当前阶段：{task.currentStage}</span>
-                            {task.storyTitle ? <span>来源 Story：{task.storyTitle}</span> : null}
+                            {task.currentAgentRunId ? (
+                              <span>当前 Run：{task.currentAgentRunId}</span>
+                            ) : null}
+                            {task.agentRunCount > 0 ? (
+                              <span>Run 历史：{task.agentRunCount}</span>
+                            ) : null}
+                            {task.rerouteCount > 0 ? (
+                              <span>已改派：{task.rerouteCount} 次</span>
+                            ) : null}
+                            {task.storyTitle ? <span>来源用户故事：{task.storyTitle}</span> : null}
                           </div>
+                          {task.selectionReasonSummary ? (
+                            <p className="mt-2 text-xs text-muted-foreground">
+                              路由原因：{task.selectionReasonSummary}
+                            </p>
+                          ) : null}
                           <div className="mt-3 flex flex-wrap gap-3 text-xs">
                             <Link
                               href={buildTaskDetailHref(workspaceSlug, projectSlug, task.taskId)}
@@ -444,7 +461,7 @@ export function PlanningRequestDetailSheet({
                               <p className="text-sm text-muted-foreground">{artifact.storyTitle}</p>
                             </div>
                             <Badge variant="outline">
-                              {artifact.deferredBy === "story" ? "整条 Story 暂不执行" : "该任务暂不执行"}
+                              {artifact.deferredBy === "story" ? "整条用户故事暂不执行" : "该任务暂不执行"}
                             </Badge>
                           </div>
                           <div className="mt-2 flex flex-wrap gap-3 text-xs text-muted-foreground">

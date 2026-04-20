@@ -1,10 +1,22 @@
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
+import type { ReactNode } from "react";
+
+vi.mock("@/components/ui/dialog", () => ({
+  Dialog: ({ children }: { children: ReactNode }) => <>{children}</>,
+  DialogContent: ({ children }: { children: ReactNode }) => <>{children}</>,
+  DialogHeader: ({ children }: { children: ReactNode }) => <>{children}</>,
+  DialogTitle: ({ children }: { children: ReactNode }) => <>{children}</>,
+  DialogDescription: ({ children }: { children: ReactNode }) => <>{children}</>,
+  DialogFooter: ({ children }: { children: ReactNode }) => <>{children}</>,
+}));
+
 import {
   buildPlanningProjectUrl,
   getPlanningGoalDescribedBy,
   isPlanningRequestSubmissionBlocked,
   mergePlanningRequests,
+  PlanningRequestHandoffDialog,
   PlanningRequestComposerView,
   PLANNING_GOAL_ERROR_ID,
   PLANNING_GOAL_HELP_ID,
@@ -129,6 +141,89 @@ describe("PlanningRequestComposerView", () => {
 
     expect(markup).toContain("未关联仓库也可以先发起规划");
     expect(markup).toContain("一句话描述你希望系统规划的目标");
+  });
+
+  it("offers a recovery entry point when no executable task candidates exist", () => {
+    const markup = renderToStaticMarkup(
+      <PlanningRequestHandoffDialog
+        open
+        onOpenChange={() => {}}
+        preview={{
+          planningRequestId: "planning-1",
+          dispatchMode: "manual",
+          approvalRequired: false,
+          candidateTaskCount: 0,
+          storyCount: 0,
+          groups: [],
+        }}
+        request={{
+          ...baseRequest,
+          status: "awaiting-confirmation",
+          routeType: "planning",
+        }}
+        deferredArtifactIds={[]}
+        error={null}
+        isPending={false}
+        onToggleDeferredStory={() => {}}
+        onToggleDeferredTask={() => {}}
+        onOpenDetail={() => {}}
+        onConfirm={() => {}}
+      />,
+    );
+
+    expect(markup).toContain("暂无可执行任务");
+    expect(markup).toContain("查看链路详情");
+    expect(markup).not.toContain("确认并生成执行任务");
+  });
+
+  it("keeps handoff selection copy fully in Chinese", () => {
+    const markup = renderToStaticMarkup(
+      <PlanningRequestHandoffDialog
+        open
+        onOpenChange={() => {}}
+        preview={{
+          planningRequestId: "planning-1",
+          dispatchMode: "manual",
+          approvalRequired: false,
+          candidateTaskCount: 1,
+          storyCount: 1,
+          groups: [
+            {
+              storyArtifactId: "story-1",
+              storyTitle: "Story 3.4",
+              storyFilePath: "_bmad-output/implementation-artifacts/3-4.md",
+              storyId: "3.4",
+              tasks: [
+                {
+                  artifactId: "task-1",
+                  artifactName: "补齐确认反馈",
+                  filePath: "_bmad-output/implementation-artifacts/3-4.md#task-1",
+                  storyArtifactId: "story-1",
+                  storyTitle: "Story 3.4",
+                  storyFilePath: "_bmad-output/implementation-artifacts/3-4.md",
+                  order: 1,
+                },
+              ],
+            },
+          ],
+        }}
+        request={{
+          ...baseRequest,
+          status: "awaiting-confirmation",
+          routeType: "planning",
+        }}
+        deferredArtifactIds={[]}
+        error={null}
+        isPending={false}
+        onToggleDeferredStory={() => {}}
+        onToggleDeferredTask={() => {}}
+        onOpenDetail={() => {}}
+        onConfirm={() => {}}
+      />,
+    );
+
+    expect(markup).toContain("整个用户故事暂不执行");
+    expect(markup).not.toContain("整个 Story 暂不执行");
   });
 });
 

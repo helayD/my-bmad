@@ -42,6 +42,7 @@ model User {
   accounts      Account[]
   repos         Repo[]
   createdTasks  Task[]              @relation("TaskCreator")
+  requestedAgentRuns AgentRun[]
   createdPlanningRequests PlanningRequest[] @relation("PlanningRequestCreator")
   ownedWorkspaces       Workspace[]           @relation("WorkspaceOwner")
   workspaceMemberships  WorkspaceMembership[]
@@ -109,9 +110,11 @@ model Workspace {
   owner      User                  @relation("WorkspaceOwner", fields: [ownerId], references: [id], onDelete: Restrict)
   projects         Project[]
   tasks            Task[]
+  agentRuns        AgentRun[]
   planningRequests PlanningRequest[]
   writebacks       Writeback[]
   auditEvents      AuditEvent[]
+  executionSessions ExecutionSession[]
   memberships      WorkspaceMembership[]
   invitations      WorkspaceInvitation[]
 
@@ -134,9 +137,11 @@ model Project {
   repo             Repo?             @relation(fields: [repoId], references: [id], onDelete: SetNull)
   artifacts        BmadArtifact[]
   tasks            Task[]
+  agentRuns        AgentRun[]
   planningRequests PlanningRequest[]
   writebacks       Writeback[]
   auditEvents      AuditEvent[]
+  executionSessions ExecutionSession[]
 
   @@unique([workspaceId, slug])
   @@index([workspaceId])
@@ -227,9 +232,12 @@ model Task {
   summary          String
   priority         String
   intent           String
+  intentDetail     String?
+  preferredAgentType String?
   status           String        @default("pending")
   currentStage     String
   nextStep         String
+  currentAgentRunId String?
   metadata         Json?
   createdByUserId  String
   createdAt        DateTime      @default(now())
@@ -240,6 +248,9 @@ model Task {
   planningRequest  PlanningRequest? @relation(fields: [planningRequestId], references: [id], onDelete: SetNull)
   sourceArtifact   BmadArtifact? @relation("TaskSourceArtifact", fields: [sourceArtifactId], references: [id], onDelete: SetNull)
   createdByUser    User          @relation("TaskCreator", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  agentRuns        AgentRun[]    @relation("TaskAgentRuns")
+  currentAgentRun  AgentRun?     @relation("TaskCurrentAgentRun", fields: [currentAgentRunId], references: [id], onDelete: SetNull)
+  executionSessions ExecutionSession[] @relation("TaskExecutionSessions")
   writebacks       Writeback[]
   auditEvents      AuditEvent[]
 
@@ -248,10 +259,52 @@ model Task {
   @@index([planningRequestId])
   @@index([sourceArtifactId])
   @@index([createdByUserId])
+  @@index([currentAgentRunId])
   @@index([projectId, status])
   @@index([projectId, planningRequestId])
   @@unique([planningRequestId, sourceArtifactId])
   @@map("tasks")
+}
+
+model AgentRun {
+  id                      String    @id @default(cuid())
+  workspaceId             String
+  projectId               String
+  taskId                  String
+  agentType               String
+  status                  String    @default("dispatched")
+  decisionSource          String
+  selectionReasonCode     String
+  selectionReasonSummary  String
+  matchedSignals          String[]  @default([])
+  requestedByUserId       String?
+  startedAt               DateTime?
+  completedAt             DateTime?
+  terminatedAt            DateTime?
+  supersededAt            DateTime?
+  terminationReasonCode   String?
+  terminationReasonSummary String?
+  replacesRunId           String?   @unique
+  metadata                Json?
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+
+  workspace               Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  project                 Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  task                    Task      @relation("TaskAgentRuns", fields: [taskId], references: [id], onDelete: Cascade)
+  requestedByUser         User?     @relation(fields: [requestedByUserId], references: [id], onDelete: SetNull)
+  currentForTasks         Task[]    @relation("TaskCurrentAgentRun")
+  executionSession        ExecutionSession?
+  replacesRun             AgentRun? @relation("AgentRunReplacement", fields: [replacesRunId], references: [id], onDelete: SetNull)
+  replacementRun          AgentRun? @relation("AgentRunReplacement")
+
+  @@index([workspaceId, createdAt])
+  @@index([projectId, status, createdAt])
+  @@index([taskId, createdAt])
+  @@index([taskId, status, createdAt])
+  @@index([taskId, agentType, createdAt])
+  @@index([requestedByUserId])
+  @@map("agent_runs")
 }
 
 model PlanningRequest {
@@ -356,6 +409,37 @@ model Writeback {
   @@index([artifactId, occurredAt])
   @@index([projectId, artifactId, occurredAt])
   @@map("writebacks")
+}
+
+model ExecutionSession {
+  id                         String     @id @default(cuid())
+  workspaceId                String
+  projectId                   String
+  taskId                     String
+  agentRunId                 String     @unique
+  transport                  String     @default("tmux")
+  sessionName                String     @unique
+  processPid                 Int?
+  status                     String     @default("starting")
+  startedAt                  DateTime?
+  completedAt                DateTime?
+  terminatedAt               DateTime?
+  terminationReasonCode      String?
+  terminationReasonSummary   String?
+  metadata                   Json?
+  createdAt                  DateTime   @default(now())
+  updatedAt                  DateTime   @updatedAt
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  task        Task      @relation("TaskExecutionSessions", fields: [taskId], references: [id], onDelete: Cascade)
+  agentRun    AgentRun  @relation(fields: [agentRunId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, status, createdAt])
+  @@index([taskId, createdAt])
+  @@index([workspaceId, createdAt])
+  @@index([agentRunId])
+  @@map("execution_sessions")
 }
 
 model AuditEvent {

@@ -1,0 +1,38 @@
+{
+  "layer": "blind",
+  "status": "ok",
+  "summary": "Diff-only 审查发现 3 个问题：一个是 `planned` 子状态被 UI 扁平化，一个是 Epic 聚合丢失 `dispatched` 真值，另一个是 manual 路由链路把推荐 Agent 信息截断了。",
+  "findings": [
+    {
+      "title": "审批中的 planned 任务仍显示可点击的首次派发入口",
+      "detail": "任务详情页对所有 `planned` 任务都直接渲染 `TaskDispatchCard`，而卡片内部只看 `taskStatus === \"planned\"` 就启用 CTA，并固定展示“等待派发”的文案。与此同时，服务端 dispatch 逻辑明确会拦截 `requireApprovalBeforeExecution` / `approval-required` 的任务。这会让等待审批的任务出现一个注定失败的操作入口。",
+      "location": "src/components/tasks/task-detail-view.tsx:128",
+      "severity": "medium",
+      "evidence": "`task-detail-view.tsx` 在 `task.status === \"planned\"` 时无条件挂载 `TaskDispatchCard`；`task-dispatch-card.tsx` 的 `canDispatch` 只依赖 `taskStatus === \"planned\"`；`dispatch.ts` 又在审批门控下直接返回 `TASK_DISPATCH_NOT_READY`。",
+      "rule_or_ac": "Task 4.4 / AC #2, #3",
+      "trigger_condition": "任务仍处于 `planned`，但工作空间或 handoff 语义要求先审批。",
+      "potential_consequence": "用户会被引导点击一个无法成功的派发按钮，并误判任务已进入“等待派发”而不是“等待审批”。"
+    },
+    {
+      "title": "Epic 执行历史把 dispatched 重新压回了待执行",
+      "detail": "Epic 聚合只保留 `completed / in-progress / pending / failed` 四个桶，`deriveStoryAggregateStatus()` 对最新任务处于 `dispatched` 的 Story 没有单独分支，最终走默认 `pending`。这样 4.2 新引入的“已完成路由、尚未启动执行”状态，在 Epic 视图里会重新退化成“待执行”。",
+      "location": "src/lib/tasks/tracking.ts:869",
+      "severity": "medium",
+      "evidence": "`ARTIFACT_EXECUTION_STATUS_LABELS` 没有 `dispatched`；`deriveStoryAggregateStatus()` 只识别 `in-progress/review/done/blocked`，否则返回 `pending`；`artifact-task-history.tsx` 直接把这个聚合结果展示到 Epic 分布卡片。",
+      "rule_or_ac": "Task 4.6",
+      "trigger_condition": "Epic 下某个 Story 的最新任务状态是 `dispatched`。",
+      "potential_consequence": "Epic 级执行面板会把已经完成路由的 Story 误报成还没进入派发，影响人工调度和状态判断。"
+    },
+    {
+      "title": "manual 路由分支把推荐 Agent 信息丢掉了",
+      "detail": "路由服务在 `selection-required` 分支已经生成了 `recommendedAgentType` 与推荐理由，但 `dispatchTask()` 直接把 `routingDecision` 置为 `null` 返回给上层，`dispatchTaskAction()` 又进一步收敛成泛化错误。这样调用方拿不到推荐 Agent，也无法把它作为 manual 场景下的默认建议。",
+      "location": "src/lib/execution/dispatch.ts:166",
+      "severity": "low",
+      "evidence": "`resolveTaskRoutingDecision()` 的判别联合包含 `recommendedAgentType`；`dispatch.ts` 在 `selection-required` 分支返回 `routingDecision: null`；`task-dispatch-card.tsx` 因而只能从空白选择开始。",
+      "rule_or_ac": "Task 2.6",
+      "trigger_condition": "工作空间路由模式为 `manual`，且任务没有显式 Agent 偏好。",
+      "potential_consequence": "人工派发界面丢失可解释的默认建议，增加操作成本，也让后续自动/半自动入口无法复用这条推荐链路。"
+    }
+  ],
+  "parsing_notes": []
+}

@@ -34,6 +34,7 @@ describe("ArtifactTaskHistory", () => {
           statusDistribution: {
             completed: 0,
             inProgress: 0,
+            dispatched: 0,
             pending: 0,
             failed: 0,
           },
@@ -151,6 +152,7 @@ describe("ArtifactTaskHistory", () => {
           statusDistribution: {
             completed: 0,
             inProgress: 0,
+            dispatched: 0,
             pending: 0,
             failed: 0,
           },
@@ -168,6 +170,109 @@ describe("ArtifactTaskHistory", () => {
     expect(markup).toContain("src/actions/task-actions.ts");
     expect(markup).toContain("查看产物详情");
     expect(markup).toContain("/workspace/demo-workspace/project/demo-project/tasks/task-1");
+  });
+
+  it("renders rerouted run history with current markers and termination details", () => {
+    const markup = renderToStaticMarkup(
+      <ArtifactTaskHistory
+        artifactType="STORY"
+        filter="all"
+        onFilterChange={() => {}}
+        payload={{
+          artifact: {
+            id: "artifact-story-2",
+            type: "STORY",
+            name: "Story 4.3",
+          },
+          latestWriteback: null,
+          latestWritebackTaskDetailHref: null,
+          viewType: "story",
+          supportsDirectHistory: true,
+          supportsExecutionHistory: true,
+          items: [
+            {
+              taskId: "task-redispatch-1",
+              title: "调整执行路由",
+              status: "dispatched",
+              executionStartedAt: "2026-04-14T02:00:00.000Z",
+              currentStage: "已重新派发",
+              currentActivity: "已重新派发，等待新会话启动。",
+              agentTypeLabel: "Claude Code",
+              artifactSummary: "暂无关键产物",
+              resultSummary: "旧 Run 已终止，新 Run 已派发",
+              sourceArtifactName: "Story 4.3",
+              taskDetailHref: "/workspace/demo-workspace/project/demo-project/tasks/task-redispatch-1",
+              agentRuns: [
+                {
+                  id: "run-current",
+                  agentType: "claude-code",
+                  agentTypeLabel: "Claude Code",
+                  status: "dispatched",
+                  statusLabel: "已派发",
+                  createdAt: "2026-04-14T02:10:00.000Z",
+                  startedAt: null,
+                  completedAt: null,
+                  terminatedAt: null,
+                  supersededAt: null,
+                  selectionReasonSummary: "当前任务更适合先做分析与方案整理。",
+                  decisionSource: "manual-reroute",
+                  replacesRunId: "run-previous",
+                  replacementRunId: null,
+                  terminationReasonSummary: null,
+                  isCurrent: true,
+                  summary: "已重新派发，等待新会话启动。",
+                },
+                {
+                  id: "run-previous",
+                  agentType: "codex",
+                  agentTypeLabel: "Codex",
+                  status: "superseded",
+                  statusLabel: "已替代",
+                  createdAt: "2026-04-14T01:30:00.000Z",
+                  startedAt: "2026-04-14T01:35:00.000Z",
+                  completedAt: null,
+                  terminatedAt: "2026-04-14T02:08:00.000Z",
+                  supersededAt: "2026-04-14T02:08:00.000Z",
+                  selectionReasonSummary: "初次派发到 Codex。",
+                  decisionSource: "intent-heuristic",
+                  replacesRunId: null,
+                  replacementRunId: "run-current",
+                  terminationReasonSummary: "当前任务更适合改派到 Claude Code。",
+                  isCurrent: false,
+                  summary: "旧会话已终止。",
+                },
+              ],
+              artifacts: [],
+              writeback: null,
+              writebackStatusLabel: null,
+              writebackOutcomeLabel: null,
+              writebackOccurredAt: null,
+              writebackErrorSummary: null,
+              writebackRecoveryHint: null,
+              hasWritebackConflict: false,
+            },
+          ],
+          storySummaries: [],
+          statusDistribution: {
+            completed: 0,
+            inProgress: 1,
+            dispatched: 0,
+            pending: 0,
+            failed: 0,
+          },
+        }}
+        isLoading={false}
+        error={null}
+      />,
+    );
+
+    expect(markup).toContain("当前 Run");
+    expect(markup).toContain("历史 Run");
+    expect(markup).toContain("run-current");
+    expect(markup).toContain("run-previous");
+    expect(markup).toContain("替代自 Run");
+    expect(markup).toContain("终止说明");
+    expect(markup).toContain("当前任务更适合改派到 Claude Code。");
   });
 
   it("renders Epic aggregate distribution and Story summaries", () => {
@@ -246,7 +351,7 @@ describe("ArtifactTaskHistory", () => {
             {
               storyArtifactId: "story-2",
               storyName: "Story 2.4",
-              aggregateStatus: "in-progress",
+              aggregateStatus: "dispatched",
               latestActivity: "正在整理 Epic 聚合卡片",
               taskCount: 1,
               latestTaskDetailHref: "/workspace/demo-workspace/project/demo-project/tasks/task-2",
@@ -255,7 +360,8 @@ describe("ArtifactTaskHistory", () => {
           ],
           statusDistribution: {
             completed: 1,
-            inProgress: 1,
+            inProgress: 0,
+            dispatched: 1,
             pending: 0,
             failed: 0,
           },
@@ -266,7 +372,7 @@ describe("ArtifactTaskHistory", () => {
     );
 
     expect(markup).toContain("已完成");
-    expect(markup).toContain("执行中");
+    expect(markup).toContain("已派发");
     expect(markup).toContain("Story 2.3 已完成回写");
     expect(markup).toContain("Story 2.3");
     expect(markup).toContain("Story 2.4");
@@ -295,6 +401,7 @@ describe("ArtifactTaskHistory", () => {
           statusDistribution: {
             completed: 0,
             inProgress: 0,
+            dispatched: 0,
             pending: 0,
             failed: 0,
           },

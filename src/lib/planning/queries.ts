@@ -7,6 +7,11 @@ import {
   getTasksByPlanningRequestIds,
 } from "@/lib/db/helpers";
 import {
+  TASK_AGENT_TYPE_LABELS,
+  resolveTaskAgentRuns,
+  resolveTaskRoutingDecision,
+} from "@/lib/tasks";
+import {
   parsePlanningArtifactSummary,
   parsePlanningExecutionHandoffDraft,
   parsePlanningExecutionSteps,
@@ -388,6 +393,13 @@ function mapPlanningDerivedTask(
   const handoffTask = createdTaskMap.get(task.id) ?? null;
   const metadata = toRecord(task.metadata);
   const planningHandoff = toRecord(metadata.planningHandoff);
+  const routingDecision = resolveTaskRoutingDecision(task.metadata);
+  const agentRuns = resolveTaskAgentRuns(
+    task.metadata,
+    task.agentRuns ?? [],
+    task.currentAgentRunId ?? null,
+  );
+  const currentAgentRun = agentRuns.find((run) => run.isCurrent) ?? agentRuns[0] ?? null;
   const readyState = planningHandoffReadyStateSchema.safeParse(
     handoffTask?.readyState ?? planningHandoff.readyState,
   );
@@ -412,6 +424,18 @@ function mapPlanningDerivedTask(
     queuePosition:
       handoffTask?.queuePosition ?? asPositiveInt(planningHandoff.queuePosition),
     readyState: readyState.success ? readyState.data : null,
+    currentAgentRunId: task.currentAgentRunId ?? currentAgentRun?.id ?? null,
+    selectedAgentType: currentAgentRun?.agentType ?? routingDecision?.selectedAgentType ?? null,
+    selectedAgentLabel: currentAgentRun?.agentType
+      ? TASK_AGENT_TYPE_LABELS[currentAgentRun.agentType]
+      : routingDecision
+          ? TASK_AGENT_TYPE_LABELS[routingDecision.selectedAgentType]
+          : null,
+    selectionReasonSummary: currentAgentRun?.selectionReasonSummary
+      ?? routingDecision?.selectionReasonSummary
+      ?? null,
+    agentRunCount: agentRuns.length,
+    rerouteCount: Math.max(0, agentRuns.filter((run) => run.replacesRunId).length),
     sourceArtifactId,
     sourceArtifactName,
     sourceArtifactPath,

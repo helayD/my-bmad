@@ -3,6 +3,7 @@ import {
   TASK_INTENT_VALUES,
   TASK_PRIORITY_VALUES,
   TASK_STATUS_VALUES,
+  type TaskAgentType,
 } from "@/lib/tasks/types";
 
 export const PLANNING_REQUEST_ROUTE_VALUES = ["planning", "direct-execution"] as const;
@@ -427,6 +428,12 @@ export interface PlanningDerivedTaskLinkView {
   nextStep: string;
   queuePosition: number | null;
   readyState: PlanningHandoffReadyState | null;
+  currentAgentRunId: string | null;
+  selectedAgentType: TaskAgentType | null;
+  selectedAgentLabel: string | null;
+  selectionReasonSummary: string | null;
+  agentRunCount: number;
+  rerouteCount: number;
   sourceArtifactId: string | null;
   sourceArtifactName: string;
   sourceArtifactPath: string;

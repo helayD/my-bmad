@@ -4,9 +4,20 @@ import { ArrowLeft } from "lucide-react";
 import { TaskDetailView } from "@/components/tasks/task-detail-view";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { getProjectBySlug, getTaskById } from "@/lib/db/helpers";
-import { resolveTaskLatestWriteback, resolveTaskSourceArtifact, resolveTaskSourceHierarchy } from "@/lib/tasks";
+import { getProjectBySlug, getTaskById, resolveTaskConcurrencySnapshot, resolveTaskBoundarySnapshot } from "@/lib/db/helpers";
+import { resolveTaskRoutingDecision as resolveDispatchRoutingDecision } from "@/lib/execution/routing";
+import {
+  isTaskApprovalRequiredForDispatch,
+  TASK_AGENT_TYPE_LABELS,
+  resolveTaskAgentRuns,
+  resolveTaskLatestWriteback,
+  resolveTaskCurrentSessionView,
+  resolveTaskRoutingDecision as resolveStoredTaskRoutingDecision,
+  resolveTaskSourceArtifact,
+  resolveTaskSourceHierarchy,
+} from "@/lib/tasks";
 import { guardWorkspacePage } from "@/lib/workspace/page-guard";
+import { resolveWorkspaceGovernanceSettings } from "@/lib/workspace/settings";
 
 interface TaskDetailPageProps {
   params: Promise<{ slug: string; projectSlug: string; taskId: string }>;
@@ -14,7 +25,7 @@ interface TaskDetailPageProps {
 
 export default async function TaskDetailPage({ params }: TaskDetailPageProps) {
   const { slug, projectSlug, taskId } = await params;
-  const { workspace } = await guardWorkspacePage(slug);
+  const { workspace, role } = await guardWorkspacePage(slug);
 
   const project = await getProjectBySlug(workspace.id, projectSlug);
   if (!project) {
@@ -37,6 +48,69 @@ export default async function TaskDetailPage({ params }: TaskDetailPageProps) {
       })
     : null;
   const latestWriteback = resolveTaskLatestWriteback(task.writebacks);
+  const agentRuns = resolveTaskAgentRuns(
+    task.metadata,
+    task.agentRuns,
+    task.currentAgentRunId,
+  );
+  const routingDecision = resolveStoredTaskRoutingDecision(task.metadata);
+  const currentSession = resolveTaskCurrentSessionView(
+    { executionSessions: task.currentAgentRun?.executionSession ? [task.currentAgentRun.executionSession] : [], metadata: task.metadata },
+    task.currentAgentRunId,
+  );
+  const canManageExecution = role === "OWNER" || role === "ADMIN" || role === "MEMBER";
+  const workspaceSettings = resolveWorkspaceGovernanceSettings(workspace.settings);
+  const workspaceRoutingPreference = workspaceSettings.agentRoutingPreference;
+  const requiresApprovalForDispatch = workspaceSettings.requireApprovalBeforeExecution
+    || isTaskApprovalRequiredForDispatch(task.metadata);
+  const dispatchPreviewDecision = task.status === "planned" && !requiresApprovalForDispatch
+    ? resolveDispatchRoutingDecision({
+        task: {
+          goal: task.goal,
+          summary: task.summary,
+          intent: task.intent,
+          intentDetail: task.intentDetail,
+          preferredAgentType: task.preferredAgentType,
+          metadata: task.metadata,
+        },
+        workspaceSettings,
+        projectSettings: task.project.settings,
+        reasonContext: "dispatch",
+      })
+    : null;
+  const plannedDispatchState = task.status !== "planned"
+    ? null
+    : requiresApprovalForDispatch
+      ? "approval-required"
+      : dispatchPreviewDecision?.kind === "selection-required"
+        ? "selection-required"
+        : "ready";
+  const dispatchPreviewAgentType = dispatchPreviewDecision?.kind === "selection-required"
+    ? dispatchPreviewDecision.recommendedAgentType
+    : dispatchPreviewDecision?.kind === "selected"
+      ? dispatchPreviewDecision.selectedAgentType
+      : null;
+  const dispatchPreviewAgentLabel = dispatchPreviewAgentType
+    ? TASK_AGENT_TYPE_LABELS[dispatchPreviewAgentType]
+    : null;
+  const dispatchPreviewReason = dispatchPreviewDecision?.selectionReasonSummary ?? null;
+  const concurrencySnapshot = await resolveTaskConcurrencySnapshot(task.id, workspace.id, project.id);
+  const boundarySnapshot = await resolveTaskBoundarySnapshot(task.id, workspace.id, project.id);
+  const queueSnapshot = concurrencySnapshot.queuePosition !== null
+    ? {
+        queuePosition: concurrencySnapshot.queuePosition,
+        queuedAt: null,
+        workspaceActiveConcurrentTasks: concurrencySnapshot.workspaceActiveConcurrentTasks,
+        projectActiveConcurrentTasks: concurrencySnapshot.projectActiveConcurrentTasks,
+        maxConcurrentTasks: concurrencySnapshot.maxConcurrentTasks,
+        estimatedWaitSeconds: null,
+        estimatedWaitLabel: null,
+        queueReasonCode: "WORKSPACE_CAPACITY_FULL" as const,
+        queueReasonSummary: concurrencySnapshot.workspaceActiveConcurrentTasks >= concurrencySnapshot.maxConcurrentTasks
+          ? "工作空间并发上限已满，任务已排入等待队列。"
+          : "",
+      }
+    : null;
 
   return (
     <div className="mx-auto max-w-5xl space-y-6 p-4">
@@ -65,12 +139,16 @@ export default async function TaskDetailPage({ params }: TaskDetailPageProps) {
 
       <TaskDetailView
         task={{
+          workspaceId: task.workspace.id,
+          projectId: task.project.id,
           id: task.id,
           title: task.title,
           goal: task.goal,
           summary: task.summary,
           priority: task.priority,
           intent: task.intent,
+          intentDetail: task.intentDetail,
+          preferredAgentType: task.preferredAgentType,
           status: task.status,
           currentStage: task.currentStage,
           nextStep: task.nextStep,
@@ -79,9 +157,23 @@ export default async function TaskDetailPage({ params }: TaskDetailPageProps) {
           project: { slug: task.project.slug, name: task.project.name },
           workspace: { slug: task.workspace.slug, name: task.workspace.name },
           sourceArtifact,
+          plannedDispatchState,
+          workspaceRoutingPreference,
+          dispatchPreviewAgentType,
+          dispatchPreviewAgentLabel,
+          dispatchPreviewReason,
+          agentRuns,
+          routingReason: routingDecision?.selectionReasonSummary ?? null,
           latestWriteback,
+          currentSession,
+          queueSnapshot,
+          boundarySnapshot,
+          workspaceActiveConcurrentTasks: concurrencySnapshot.workspaceActiveConcurrentTasks,
+          projectActiveConcurrentTasks: concurrencySnapshot.projectActiveConcurrentTasks,
+          maxConcurrentTasks: concurrencySnapshot.maxConcurrentTasks,
         }}
         sourceHierarchy={sourceHierarchy}
+        canManageExecution={canManageExecution}
       />
     </div>
   );

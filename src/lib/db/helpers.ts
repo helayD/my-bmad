@@ -253,65 +253,64 @@ export const getArtifactById = cache(
   }
 );
 
-/**
- * Get a single task by ID with related project, workspace, creator, and source artifact hierarchy.
- * Cached per request via React cache().
- */
-export const getTaskById = cache(
-  async (taskId: string) => {
-    return prisma.task.findUnique({
-      where: { id: taskId },
-      include: {
-        workspace: {
-          select: { id: true, slug: true, name: true },
-        },
-        project: {
-          select: { id: true, workspaceId: true, slug: true, name: true },
-        },
-        createdByUser: {
-          select: { id: true, name: true, email: true },
-        },
-        sourceArtifact: {
-          include: {
-            parent: {
-              include: {
-                parent: {
-                  include: {
-                    parent: true,
-                  },
-                },
-              },
-            },
-          },
-        },
-        writebacks: {
-          orderBy: [{ occurredAt: "desc" }, { updatedAt: "desc" }],
-          take: 1,
-          select: {
-            id: true,
-            taskId: true,
-            artifactId: true,
-            outcome: true,
-            writebackStatus: true,
-            summary: true,
-            errorSummary: true,
-            occurredAt: true,
-            payload: true,
-          },
-        },
-      },
-    });
-  }
-);
+// ── Shared Prisma selectors ─────────────────────────────────────────────────────
+// Defined in dependency order: executionSession → agentRun → taskHistoryRecord
+
+const executionSessionRecordSelect = {
+  id: true,
+  taskId: true,
+  agentRunId: true,
+  transport: true,
+  sessionName: true,
+  processPid: true,
+  status: true,
+  startedAt: true,
+  completedAt: true,
+  terminatedAt: true,
+  terminationReasonCode: true,
+  terminationReasonSummary: true,
+  createdAt: true,
+} satisfies Prisma.ExecutionSessionSelect;
+
+const agentRunRecordSelect = {
+  id: true,
+  agentType: true,
+  status: true,
+  decisionSource: true,
+  selectionReasonCode: true,
+  selectionReasonSummary: true,
+  matchedSignals: true,
+  requestedByUserId: true,
+  createdAt: true,
+  startedAt: true,
+  completedAt: true,
+  terminatedAt: true,
+  supersededAt: true,
+  terminationReasonCode: true,
+  terminationReasonSummary: true,
+  replacesRunId: true,
+  metadata: true,
+  replacementRun: {
+    select: {
+      id: true,
+    },
+  },
+  executionSession: {
+    select: executionSessionRecordSelect,
+  },
+} satisfies Prisma.AgentRunSelect;
 
 const taskHistoryRecordSelect = {
   id: true,
   planningRequestId: true,
   sourceArtifactId: true,
+  intentDetail: true,
+  preferredAgentType: true,
   title: true,
   status: true,
   currentStage: true,
   nextStep: true,
+  currentAgentRunId: true,
   createdAt: true,
   metadata: true,
   sourceArtifact: {
@@ -344,6 +343,17 @@ const taskHistoryRecordSelect = {
       },
     },
   },
+  currentAgentRun: {
+    select: agentRunRecordSelect,
+  },
+  agentRuns: {
+    orderBy: [{ createdAt: "desc" }],
+    select: agentRunRecordSelect,
+  },
+  executionSessions: {
+    orderBy: [{ createdAt: "desc" }],
+    select: executionSessionRecordSelect,
+  },
   writebacks: {
     orderBy: [{ occurredAt: "desc" }, { updatedAt: "desc" }],
     take: 1,
@@ -360,6 +370,68 @@ const taskHistoryRecordSelect = {
     },
   },
 } satisfies Prisma.TaskSelect;
+
+/**
+ * Get a single task by ID with related project, workspace, creator, and source artifact hierarchy.
+ * Cached per request via React cache().
+ */
+export const getTaskById = cache(
+  async (taskId: string) => {
+    return prisma.task.findUnique({
+      where: { id: taskId },
+      include: {
+        workspace: {
+          select: { id: true, slug: true, name: true },
+        },
+        project: {
+          select: { id: true, workspaceId: true, slug: true, name: true, settings: true },
+        },
+        createdByUser: {
+          select: { id: true, name: true, email: true },
+        },
+        sourceArtifact: {
+          include: {
+            parent: {
+              include: {
+                parent: {
+                  include: {
+                    parent: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+        currentAgentRun: {
+          select: agentRunRecordSelect,
+        },
+        agentRuns: {
+          orderBy: [{ createdAt: "desc" }],
+          select: agentRunRecordSelect,
+        },
+        executionSessions: {
+          orderBy: [{ createdAt: "desc" }],
+          select: executionSessionRecordSelect,
+        },
+        writebacks: {
+          orderBy: [{ occurredAt: "desc" }, { updatedAt: "desc" }],
+          take: 1,
+          select: {
+            id: true,
+            taskId: true,
+            artifactId: true,
+            outcome: true,
+            writebackStatus: true,
+            summary: true,
+            errorSummary: true,
+            occurredAt: true,
+            payload: true,
+          },
+        },
+      },
+    });
+  }
+);
 
 export const getTaskHistoryCandidatesByProjectId = cache(
   async (projectId: string, status?: string) => {
@@ -503,3 +575,161 @@ export const getWorkspaceInvitations = cache(
     });
   }
 );
+
+// ── Execution Queue helpers (§4.5 Task 4.1) ───────────────────────────────────────────────
+
+/**
+ * Resolve the concurrency snapshot for display in task detail UI.
+ * Returns workspace-level and project-level active session counts, max capacity,
+ * and queue position for the given task.
+ */
+export const resolveTaskConcurrencySnapshot = cache(
+  async (taskId: string, workspaceId: string, projectId: string) => {
+    const [task, workspaceSettings, activeSessions] = await Promise.all([
+      prisma.task.findUnique({
+        where: { id: taskId },
+        select: { metadata: true },
+      }),
+      prisma.workspace.findUnique({
+        where: { id: workspaceId },
+        select: { settings: true },
+      }),
+      prisma.executionSession.findMany({
+        where: {
+          workspaceId,
+          status: { in: ["starting", "running"] },
+        },
+        select: { id: true, projectId: true },
+      }),
+    ]);
+
+    const maxConcurrentTasks = resolveMaxConcurrentTasks(workspaceSettings?.settings);
+    const workspaceActive = activeSessions.length;
+    const projectActive = activeSessions.filter((s) => s.projectId === projectId).length;
+
+    const snap = parseExecutionQueueSnapshot(task?.metadata);
+    const queuePosition = snap.queuePosition;
+
+    return {
+      maxConcurrentTasks,
+      workspaceActiveConcurrentTasks: workspaceActive,
+      projectActiveConcurrentTasks: projectActive,
+      queuePosition,
+    };
+  }
+);
+
+function resolveMaxConcurrentTasks(settings: unknown): number {
+  if (settings && typeof settings === "object" && !Array.isArray(settings)) {
+    const record = settings as Record<string, unknown>;
+    const value = record?.maxConcurrentTasks;
+    if (typeof value === "number" && value >= 1 && value <= 50) {
+      return value;
+    }
+  }
+  return 5;
+}
+
+function parseExecutionQueueSnapshot(
+  metadata: unknown,
+): { queuePosition: number | null; queuedAt: string | null; workspaceActiveConcurrentTasks: number; projectActiveConcurrentTasks: number; maxConcurrentTasks: number; estimatedWaitSeconds: number | null; estimatedWaitLabel: string | null; queueReasonCode: string; queueReasonSummary: string } {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+    return { queuePosition: null, queuedAt: null, workspaceActiveConcurrentTasks: 0, projectActiveConcurrentTasks: 0, maxConcurrentTasks: 5, estimatedWaitSeconds: null, estimatedWaitLabel: null, queueReasonCode: "WORKSPACE_CAPACITY_FULL", queueReasonSummary: "" };
+  }
+  const record = metadata as Record<string, unknown>;
+  const snap = (typeof record?.executionQueue === "object" && record.executionQueue !== null) ? record.executionQueue as Record<string, unknown> : {};
+  const queuePosition = typeof snap?.queuePosition === "number" ? snap.queuePosition : null;
+  const queuedAt = typeof snap?.queuedAt === "string" ? snap.queuedAt : null;
+  const workspaceActive = typeof snap?.workspaceActiveConcurrentTasks === "number" ? snap.workspaceActiveConcurrentTasks : 0;
+  const projectActive = typeof snap?.projectActiveConcurrentTasks === "number" ? snap.projectActiveConcurrentTasks : 0;
+  const maxConcurrent = typeof snap?.maxConcurrentTasks === "number" ? snap.maxConcurrentTasks : 5;
+  const estimatedSeconds = typeof snap?.estimatedWaitSeconds === "number" ? snap.estimatedWaitSeconds : null;
+  const estimatedLabel = typeof snap?.estimatedWaitLabel === "string" ? snap.estimatedWaitLabel : null;
+  const reasonCode = typeof snap?.queueReasonCode === "string" ? snap.queueReasonCode : "WORKSPACE_CAPACITY_FULL";
+  const reasonSummary = typeof snap?.queueReasonSummary === "string" ? snap.queueReasonSummary : "";
+  return {
+    queuePosition,
+    queuedAt,
+    workspaceActiveConcurrentTasks: workspaceActive,
+    projectActiveConcurrentTasks: projectActive,
+    maxConcurrentTasks: maxConcurrent,
+    estimatedWaitSeconds: estimatedSeconds,
+    estimatedWaitLabel: estimatedLabel,
+    queueReasonCode: reasonCode,
+    queueReasonSummary: reasonSummary,
+  };
+}
+
+/**
+ * Resolve execution boundary summary for a task.
+ * Fetches the active ExecutionSession metadata and parses the boundary profile.
+ */
+export const resolveTaskBoundarySnapshot = cache(
+  async (taskId: string, workspaceId: string, projectId: string) => {
+    const [task, latestSession] = await Promise.all([
+      prisma.task.findUnique({
+        where: { id: taskId },
+        select: {
+          currentAgentRunId: true,
+          metadata: true,
+        },
+      }),
+      prisma.executionSession.findFirst({
+        where: {
+          taskId,
+          workspaceId,
+          status: { in: ["starting", "running"] },
+        },
+        orderBy: { createdAt: "desc" },
+        select: { metadata: true },
+      }),
+    ]);
+
+    const sessionMeta = latestSession?.metadata ?? null;
+    return parseTaskBoundarySnapshot(sessionMeta);
+  }
+);
+
+function parseTaskBoundarySnapshot(
+  metadata: unknown,
+): {
+  hasBoundaryProfile: boolean;
+  projectRootDisplayPath: string | null;
+  preparationSucceeded: boolean | null;
+  injectedFileCount: number;
+  sensitivePathCount: number;
+  lastViolationCode: string | null;
+  lastViolationSummary: string | null;
+  lastViolationFatal: boolean;
+  boundaryCurrentStage: string | null;
+  boundaryNextStep: string | null;
+} {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+    return {
+      hasBoundaryProfile: false,
+      projectRootDisplayPath: null,
+      preparationSucceeded: null,
+      injectedFileCount: 0,
+      sensitivePathCount: 0,
+      lastViolationCode: null,
+      lastViolationSummary: null,
+      lastViolationFatal: false,
+      boundaryCurrentStage: null,
+      boundaryNextStep: null,
+    };
+  }
+  const record = metadata as Record<string, unknown>;
+  const hasProfile = !!record?.projectRootRealPath;
+  return {
+    hasBoundaryProfile: hasProfile,
+    projectRootDisplayPath: hasProfile ? (record.projectRootDisplayPath as string | null) ?? null : null,
+    preparationSucceeded: hasProfile ? ((record.preparationSucceeded as boolean) ?? false) : null,
+    injectedFileCount: hasProfile ? ((record.injectedFileCount as number) ?? 0) : 0,
+    sensitivePathCount: hasProfile ? ((record.sensitivePathCount as number) ?? 0) : 0,
+    lastViolationCode: hasProfile ? ((record.lastViolationCode as string | null) ?? null) : null,
+    lastViolationSummary: hasProfile ? ((record.lastViolationSummary as string | null) ?? null) : null,
+    lastViolationFatal: hasProfile ? ((record.lastViolationFatal as boolean) ?? false) : false,
+    boundaryCurrentStage: hasProfile ? ((record.boundaryCurrentStage as string | null) ?? null) : null,
+    boundaryNextStep: hasProfile ? ((record.boundaryNextStep as string | null) ?? null) : null,
+  };
+}

@@ -1,0 +1,56 @@
+{
+  "execution_mode_resolved": "sequential",
+  "failed_layers": [],
+  "dismiss_count": 0,
+  "decision_needed": [],
+  "patch": [
+    {
+      "id": 1,
+      "source": "blind+edge+auditor",
+      "title": "审批中的 planned 任务仍显示可点击的首次派发入口",
+      "detail": "任务详情页把所有 `planned` 任务都交给 `TaskDispatchCard`，而卡片内部又把 `planned` 统一解释成“等待派发”并在有权限时开放 CTA。但 4.1/4.2 的生命周期已经允许 `planned` 表示“等待审批”，且 dispatch service 会在 `requireApprovalBeforeExecution` / `approval-required` 场景直接返回 `TASK_DISPATCH_NOT_READY`。这会让等待审批的任务出现一个注定失败的操作入口，并把真实子状态说错。",
+      "location": "src/components/tasks/task-detail-view.tsx:128"
+    },
+    {
+      "id": 2,
+      "source": "blind+edge+auditor",
+      "title": "Epic 执行历史把 dispatched 重新压回了待执行",
+      "detail": "`dispatched` 已经是 4.2 的一等状态，但 Epic 级聚合仍只支持 `completed / in-progress / pending / failed` 四个桶。`deriveStoryAggregateStatus()` 在最新任务为 `dispatched` 时走默认 `pending` 分支，`artifact-task-history.tsx` 又直接把它渲染到“待执行”分布卡片。结果是 Story 级和 planning 级已经显示“已派发”，Epic 级却退回成“待执行”。",
+      "location": "src/lib/tasks/tracking.ts:869"
+    },
+    {
+      "id": 3,
+      "source": "blind+edge+auditor",
+      "title": "manual 路由分支把推荐 Agent 信息丢掉了",
+      "detail": "纯路由服务在 `selection-required` 场景已经能生成 `recommendedAgentType` 和理由，但 `dispatchTask()` 在该分支把 `routingDecision` 置为 `null`，`dispatchTaskAction()` 进一步收敛成泛化错误码。这样 manual 场景的调用方拿不到推荐 Agent，也无法实现 Task 2.6 要求的“系统已给出推荐，作为 UI 默认建议”。",
+      "location": "src/lib/execution/dispatch.ts:166"
+    }
+  ],
+  "defer": [],
+  "all_findings": [
+    {
+      "id": 1,
+      "source": "blind+edge+auditor",
+      "title": "审批中的 planned 任务仍显示可点击的首次派发入口",
+      "detail": "任务详情页把所有 `planned` 任务都交给 `TaskDispatchCard`，而卡片内部又把 `planned` 统一解释成“等待派发”并在有权限时开放 CTA。但 4.1/4.2 的生命周期已经允许 `planned` 表示“等待审批”，且 dispatch service 会在 `requireApprovalBeforeExecution` / `approval-required` 场景直接返回 `TASK_DISPATCH_NOT_READY`。这会让等待审批的任务出现一个注定失败的操作入口，并把真实子状态说错。",
+      "location": "src/components/tasks/task-detail-view.tsx:128",
+      "bucket": "patch"
+    },
+    {
+      "id": 2,
+      "source": "blind+edge+auditor",
+      "title": "Epic 执行历史把 dispatched 重新压回了待执行",
+      "detail": "`dispatched` 已经是 4.2 的一等状态，但 Epic 级聚合仍只支持 `completed / in-progress / pending / failed` 四个桶。`deriveStoryAggregateStatus()` 在最新任务为 `dispatched` 时走默认 `pending` 分支，`artifact-task-history.tsx` 又直接把它渲染到“待执行”分布卡片。结果是 Story 级和 planning 级已经显示“已派发”，Epic 级却退回成“待执行”。",
+      "location": "src/lib/tasks/tracking.ts:869",
+      "bucket": "patch"
+    },
+    {
+      "id": 3,
+      "source": "blind+edge+auditor",
+      "title": "manual 路由分支把推荐 Agent 信息丢掉了",
+      "detail": "纯路由服务在 `selection-required` 场景已经能生成 `recommendedAgentType` 和理由，但 `dispatchTask()` 在该分支把 `routingDecision` 置为 `null`，`dispatchTaskAction()` 进一步收敛成泛化错误码。这样 manual 场景的调用方拿不到推荐 Agent，也无法实现 Task 2.6 要求的“系统已给出推荐，作为 UI 默认建议”。",
+      "location": "src/lib/execution/dispatch.ts:166",
+      "bucket": "patch"
+    }
+  ]
+}

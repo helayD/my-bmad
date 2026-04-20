@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db/client";
+import { buildTaskAuditEventData, TASK_AUDIT_EVENT_NAMES } from "@/lib/audit/events";
 import {
   getAuthenticatedSession,
   getProjectArtifacts,
@@ -17,7 +18,7 @@ import {
   toProjectRepoProviderConfig,
 } from "@/lib/content-provider/project-provider";
 import { buildTaskCreationContext, TaskContextError } from "@/lib/tasks/context";
-import { getInitialTaskLifecycle } from "@/lib/tasks/defaults";
+import { buildTaskTitleFromGoal, getManualTaskLifecycle } from "@/lib/tasks/defaults";
 import {
   buildTaskSourceContextSnapshot,
   buildArtifactTaskHistoryPayload,
@@ -26,10 +27,9 @@ import {
 } from "@/lib/tasks/tracking";
 import { applyTaskTerminalStateWriteback, WritebackServiceError } from "@/lib/execution/writeback";
 import {
-  TASK_INTENT_VALUES,
-  TASK_PRIORITY_VALUES,
   TASK_STATUS_VALUES,
   TASK_TERMINAL_STATUS_VALUES,
+  taskCreateInputSchema,
   type CreatedTaskPayload,
   type TaskCreateInput,
   type TaskCreationContext,
@@ -37,22 +37,13 @@ import {
   type TaskTerminalStateUpdateResult,
 } from "@/lib/tasks/types";
 import { requireProjectAccess } from "@/lib/workspace/permissions";
+import { resolveWorkspaceGovernanceSettings } from "@/lib/workspace/settings";
 import type { ActionResult } from "@/lib/types";
 
 const taskContextParamsSchema = z.object({
   workspaceId: z.string().cuid2(),
   projectId: z.string().cuid2(),
   artifactId: z.string().cuid2(),
-});
-
-const createTaskFromArtifactSchema = z.object({
-  workspaceId: z.string().cuid2(),
-  projectId: z.string().cuid2(),
-  artifactId: z.string().cuid2(),
-  title: z.string().trim().min(1).max(120),
-  goal: z.string().trim().min(1).max(500),
-  priority: z.enum(TASK_PRIORITY_VALUES),
-  intent: z.enum(TASK_INTENT_VALUES),
 });
 
 const artifactTaskHistorySchema = z.object({
@@ -236,10 +227,10 @@ export async function getTaskCreationContextAction(
   }
 }
 
-export async function createTaskFromArtifactAction(
+export async function createTaskAction(
   input: TaskCreateInput,
 ): Promise<ActionResult<CreatedTaskPayload>> {
-  const parsed = createTaskFromArtifactSchema.safeParse(input);
+  const parsed = taskCreateInputSchema.safeParse(input);
   if (!parsed.success) {
     return { success: false, error: sanitizeError(null, "VALIDATION_ERROR"), code: "VALIDATION_ERROR" };
   }
@@ -260,31 +251,12 @@ export async function createTaskFromArtifactAction(
   }
 
   try {
-    const artifact = await prisma.bmadArtifact.findFirst({
-      where: { id: parsed.data.artifactId, projectId: parsed.data.projectId, status: "active" },
-      include: {
-        parent: {
-          include: {
-            parent: {
-              include: {
-                parent: true,
-              },
-            },
-          },
-        },
-      },
-    });
-
-    if (!artifact) {
-      return { success: false, error: sanitizeError(null, "ARTIFACT_SOURCE_NOT_FOUND"), code: "ARTIFACT_SOURCE_NOT_FOUND" };
-    }
-
     const project = await prisma.project.findFirst({
       where: { id: parsed.data.projectId, workspaceId: parsed.data.workspaceId },
       include: {
         repo: true,
         workspace: {
-          select: { slug: true },
+          select: { slug: true, settings: true },
         },
       },
     });
@@ -293,36 +265,98 @@ export async function createTaskFromArtifactAction(
       return { success: false, error: sanitizeError(null, "PROJECT_ACCESS_DENIED"), code: "PROJECT_ACCESS_DENIED" };
     }
 
-    const provider = project.repo
+    let artifact: Awaited<ReturnType<typeof prisma.bmadArtifact.findFirst>> = null;
+    if (parsed.data.artifactId) {
+      artifact = await prisma.bmadArtifact.findFirst({
+        where: { id: parsed.data.artifactId, projectId: parsed.data.projectId, status: "active" },
+        include: {
+          parent: {
+            include: {
+              parent: {
+                include: {
+                  parent: true,
+                },
+              },
+            },
+          },
+        },
+      });
+    }
+
+    if (parsed.data.artifactId && !artifact) {
+      return { success: false, error: sanitizeError(null, "ARTIFACT_SOURCE_NOT_FOUND"), code: "ARTIFACT_SOURCE_NOT_FOUND" };
+    }
+
+    const provider = project.repo && artifact
       ? await createProjectContentProvider(toProjectRepoProviderConfig(project.repo), session.userId)
       : undefined;
 
-    const context = await buildTaskCreationContext(artifact, provider);
-    const lifecycle = getInitialTaskLifecycle();
-    const sourceContext = buildTaskSourceContextSnapshot(context.sourceArtifact, {
-      acceptanceCriteria: context.acceptanceCriteria,
-      relatedStoryIds: context.relatedStoryIds,
+    const context = artifact ? await buildTaskCreationContext(artifact, provider) : null;
+    const workspaceSettings = resolveWorkspaceGovernanceSettings(project.workspace.settings);
+    const lifecycle = getManualTaskLifecycle({
+      requireApprovalBeforeExecution: workspaceSettings.requireApprovalBeforeExecution,
     });
+    const sourceContext = context
+      ? buildTaskSourceContextSnapshot(context.sourceArtifact, {
+          acceptanceCriteria: context.acceptanceCriteria,
+          relatedStoryIds: context.relatedStoryIds,
+        })
+      : null;
+    const metadata = {
+      currentActivity: lifecycle.currentActivity,
+      ...(sourceContext ? { sourceContext } : { creationMode: "manual-project" }),
+    } satisfies Record<string, unknown>;
+    const title = parsed.data.title ?? buildTaskTitleFromGoal({
+      goal: parsed.data.goal,
+      sourceArtifactName: context?.sourceArtifact.artifactName ?? null,
+    });
+    const summary = context?.summary ?? "该任务由用户在项目上下文中手动创建，当前尚未关联来源工件。";
+    const occurredAt = new Date();
 
-    const task = await prisma.task.create({
-      data: {
-        workspaceId: parsed.data.workspaceId,
-        projectId: parsed.data.projectId,
-        sourceArtifactId: artifact.id,
-        title: parsed.data.title,
-        goal: parsed.data.goal,
-        summary: context.summary,
-        priority: parsed.data.priority,
-        intent: parsed.data.intent,
-        status: lifecycle.status,
-        currentStage: lifecycle.currentStage,
-        nextStep: lifecycle.nextStep,
-        metadata: {
-          currentActivity: lifecycle.currentActivity,
-          sourceContext,
-        } as unknown as Prisma.InputJsonValue,
-        createdByUserId: session.userId,
-      },
+    const task = await prisma.$transaction(async (tx) => {
+      const createdTask = await tx.task.create({
+        data: {
+          workspaceId: parsed.data.workspaceId,
+          projectId: parsed.data.projectId,
+          sourceArtifactId: artifact?.id ?? null,
+          title,
+          goal: parsed.data.goal,
+          summary,
+          priority: parsed.data.priority,
+          intent: parsed.data.intent,
+          intentDetail: parsed.data.intentDetail ?? null,
+          preferredAgentType: parsed.data.preferredAgentType ?? null,
+          status: lifecycle.status,
+          currentStage: lifecycle.currentStage,
+          nextStep: lifecycle.nextStep,
+          metadata: metadata as Prisma.InputJsonValue,
+          createdByUserId: session.userId,
+        },
+      });
+
+      await tx.auditEvent.create({
+        data: buildTaskAuditEventData({
+          workspaceId: parsed.data.workspaceId,
+          projectId: parsed.data.projectId,
+          taskId: createdTask.id,
+          artifactId: artifact?.id ?? null,
+          eventName: TASK_AUDIT_EVENT_NAMES.created,
+          occurredAt,
+          payload: {
+            taskId: createdTask.id,
+            workspaceId: parsed.data.workspaceId,
+            projectId: parsed.data.projectId,
+            sourceArtifactId: artifact?.id ?? null,
+            priority: parsed.data.priority,
+            intent: parsed.data.intent,
+            intentDetail: parsed.data.intentDetail ?? null,
+            preferredAgentType: parsed.data.preferredAgentType ?? null,
+            createdByUserId: session.userId,
+          },
+        }),
+      });
+
+      return createdTask;
     });
 
     revalidatePath(`/workspace/${project.workspace.slug}`);
@@ -337,7 +371,7 @@ export async function createTaskFromArtifactAction(
         currentStage: lifecycle.currentStage,
         currentActivity: lifecycle.currentActivity,
         nextStep: lifecycle.nextStep,
-        sourceArtifact: context.sourceArtifact,
+        sourceArtifact: context?.sourceArtifact ?? null,
       },
     };
   } catch (error) {
@@ -347,6 +381,12 @@ export async function createTaskFromArtifactAction(
 
     return { success: false, error: sanitizeError(error, "TASK_CREATION_ERROR"), code: "TASK_CREATION_ERROR" };
   }
+}
+
+export async function createTaskFromArtifactAction(
+  input: TaskCreateInput,
+): Promise<ActionResult<CreatedTaskPayload>> {
+  return createTaskAction(input);
 }
 
 export async function updateTaskTerminalStateAction(

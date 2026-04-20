@@ -200,7 +200,7 @@ describe("applyTaskTerminalStateWriteback", () => {
 
     await expect(applyTaskTerminalStateWriteback(createInput()))
       .rejects
-      .toMatchObject<Partial<WritebackServiceError>>({
+      .toMatchObject({
         code: "ARTIFACT_SOURCE_NOT_FOUND",
       });
 
@@ -254,7 +254,7 @@ describe("applyTaskTerminalStateWriteback", () => {
 
     await expect(applyTaskTerminalStateWriteback(createInput()))
       .rejects
-      .toMatchObject<Partial<WritebackServiceError>>({
+      .toMatchObject({
         code: "WRITEBACK_ERROR",
       });
 

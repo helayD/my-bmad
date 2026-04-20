@@ -43,12 +43,14 @@ vi.mock("@/lib/tasks/context", () => ({
 }));
 
 vi.mock("@/lib/tasks/defaults", () => ({
-  getInitialTaskLifecycle: vi.fn(() => ({
-    status: "pending",
-    currentStage: "任务已创建",
-    currentActivity: "系统正在整理工件上下文。",
-    nextStep: "下一步将进入执行派发阶段。",
+  getManualTaskLifecycle: vi.fn(() => ({
+    status: "planned",
+    currentStage: "已计划",
+    currentActivity: "任务已计划完成，当前尚未开始编码或启动执行。",
+    nextStep: "下一步可进入执行派发阶段。",
   })),
+  buildTaskTitleFromGoal: vi.fn(({ goal, sourceArtifactName }: { goal: string; sourceArtifactName?: string | null }) =>
+    sourceArtifactName ? `围绕《${sourceArtifactName}》执行：${goal}` : `项目任务：${goal}`),
 }));
 
 vi.mock("@/lib/execution/writeback", () => ({
@@ -67,17 +69,20 @@ vi.mock("@/lib/execution/writeback", () => ({
 const mockArtifactFindFirst = vi.fn();
 const mockProjectFindFirst = vi.fn();
 const mockTaskCreate = vi.fn();
+const mockAuditEventCreate = vi.fn();
+const mockTransaction = vi.fn();
 
 vi.mock("@/lib/db/client", () => ({
   prisma: {
+    $transaction: (...args: unknown[]) => mockTransaction(...args),
     bmadArtifact: {
       findFirst: (...args: unknown[]) => mockArtifactFindFirst(...args),
     },
     project: {
       findFirst: (...args: unknown[]) => mockProjectFindFirst(...args),
     },
-    task: {
-      create: (...args: unknown[]) => mockTaskCreate(...args),
+    auditEvent: {
+      create: (...args: unknown[]) => mockAuditEventCreate(...args),
     },
   },
 }));
@@ -93,6 +98,7 @@ const { applyTaskTerminalStateWriteback, WritebackServiceError } = await import(
 const {
   getArtifactTaskHistoryAction,
   getTaskCreationContextAction,
+  createTaskAction,
   createTaskFromArtifactAction,
   updateTaskTerminalStateAction,
 } = await import("./task-actions");
@@ -122,7 +128,8 @@ const baseProject = {
   id: "cprojectid0000000000000001",
   workspaceId: "cworkspaceid0000000000001",
   slug: "demo-project",
-  workspace: { slug: "demo-workspace" },
+  name: "Demo Project",
+  workspace: { slug: "demo-workspace", settings: null },
   repo: {
     id: "repo-1",
     owner: "demo",
@@ -185,6 +192,16 @@ beforeEach(() => {
   mockCreateProjectContentProvider.mockResolvedValue(undefined);
   mockBuildTaskCreationContext.mockResolvedValue(baseContext);
   mockTaskCreate.mockResolvedValue({ id: "ctaskid00000000000000001" });
+  mockAuditEventCreate.mockResolvedValue({ id: "audit-1" });
+  mockTransaction.mockImplementation(async (callback: (tx: { task: { create: typeof mockTaskCreate }; auditEvent: { create: typeof mockAuditEventCreate } }) => unknown) =>
+    callback({
+      task: {
+        create: mockTaskCreate as typeof mockTaskCreate,
+      },
+      auditEvent: {
+        create: mockAuditEventCreate as typeof mockAuditEventCreate,
+      },
+    }));
   mockGetProjectArtifacts.mockResolvedValue([baseArtifact]);
   mockGetTaskHistoryCandidatesByProjectId.mockResolvedValue([
     {
@@ -502,6 +519,7 @@ describe("getArtifactTaskHistoryAction", () => {
       expect(result.data.statusDistribution).toEqual({
         completed: 1,
         inProgress: 1,
+        dispatched: 0,
         pending: 0,
         failed: 0,
       });
@@ -613,9 +631,9 @@ describe("getTaskCreationContextAction", () => {
   });
 });
 
-describe("createTaskFromArtifactAction", () => {
+describe("createTaskAction", () => {
   it("returns validation error for malformed payload", async () => {
-    const result = await createTaskFromArtifactAction({
+    const result = await createTaskAction({
       workspaceId: "bad",
       projectId: "bad",
       artifactId: "bad",
@@ -623,6 +641,7 @@ describe("createTaskFromArtifactAction", () => {
       goal: "",
       priority: "medium",
       intent: "implement",
+      intentDetail: undefined,
     });
 
     expect(result.success).toBe(false);
@@ -634,7 +653,7 @@ describe("createTaskFromArtifactAction", () => {
   it("returns access error from permission guard", async () => {
     mockRequireProjectAccess.mockResolvedValue({ success: false, error: "权限不足", code: "FORBIDDEN" });
 
-    const result = await createTaskFromArtifactAction({
+    const result = await createTaskAction({
       workspaceId: "cworkspaceid0000000000001",
       projectId: "cprojectid0000000000000001",
       artifactId: "cartifactid000000000000001",
@@ -642,6 +661,7 @@ describe("createTaskFromArtifactAction", () => {
       goal: "推进 Story 2.2 实现",
       priority: "high",
       intent: "implement",
+      intentDetail: undefined,
     });
 
     expect(result.success).toBe(false);
@@ -650,8 +670,57 @@ describe("createTaskFromArtifactAction", () => {
     }
   });
 
-  it("creates a task and returns immediate feedback payload", async () => {
-    const result = await createTaskFromArtifactAction({
+  it("creates a project-level planned task without source artifact", async () => {
+    const result = await createTaskAction({
+      workspaceId: "cworkspaceid0000000000001",
+      projectId: "cprojectid0000000000000001",
+      goal: "补齐项目级手动新建任务链路",
+      priority: "medium",
+      intent: "implement",
+      preferredAgentType: "auto",
+      artifactId: undefined,
+    });
+
+    expect(result.success).toBe(true);
+    expect(mockArtifactFindFirst).not.toHaveBeenCalled();
+    expect(mockTaskCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        sourceArtifactId: null,
+        status: "planned",
+        currentStage: "已计划",
+        title: "项目任务：补齐项目级手动新建任务链路",
+        preferredAgentType: "auto",
+        summary: "该任务由用户在项目上下文中手动创建，当前尚未关联来源工件。",
+      }),
+    });
+    expect(mockTaskCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        metadata: expect.objectContaining({
+          currentActivity: "任务已计划完成，当前尚未开始编码或启动执行。",
+          creationMode: "manual-project",
+        }),
+      }),
+    });
+    expect(mockAuditEventCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        eventName: "task.created",
+        artifactId: null,
+        payload: expect.objectContaining({
+          sourceArtifactId: null,
+          priority: "medium",
+          preferredAgentType: "auto",
+        }),
+      }),
+    });
+
+    if (result.success) {
+      expect(result.data.sourceArtifact).toBeNull();
+      expect(result.data.status).toBe("planned");
+    }
+  });
+
+  it("creates a source-linked planned task and returns immediate feedback payload", async () => {
+    const result = await createTaskAction({
       workspaceId: "cworkspaceid0000000000001",
       projectId: "cprojectid0000000000000001",
       artifactId: "cartifactid000000000000001",
@@ -659,6 +728,8 @@ describe("createTaskFromArtifactAction", () => {
       goal: "推进 Story 2.2 实现",
       priority: "high",
       intent: "implement",
+      intentDetail: "优先补齐低摩擦表单交互。",
+      preferredAgentType: "codex",
     });
 
     expect(result.success).toBe(true);
@@ -669,12 +740,14 @@ describe("createTaskFromArtifactAction", () => {
         sourceArtifactId: "artifact-1",
         title: "发起执行任务",
         goal: "推进 Story 2.2 实现",
+        intentDetail: "优先补齐低摩擦表单交互。",
+        preferredAgentType: "codex",
       }),
     });
     expect(mockTaskCreate).toHaveBeenCalledWith({
       data: expect.objectContaining({
         metadata: expect.objectContaining({
-          currentActivity: "系统正在整理工件上下文。",
+          currentActivity: "任务已计划完成，当前尚未开始编码或启动执行。",
           sourceContext: {
             artifactId: "artifact-1",
             artifactType: "STORY",
@@ -689,12 +762,38 @@ describe("createTaskFromArtifactAction", () => {
         }),
       }),
     });
+    expect(mockAuditEventCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        eventName: "task.created",
+        artifactId: "artifact-1",
+        payload: expect.objectContaining({
+          sourceArtifactId: "artifact-1",
+          intentDetail: "优先补齐低摩擦表单交互。",
+          preferredAgentType: "codex",
+        }),
+      }),
+    });
 
     if (result.success) {
       expect(result.data.taskId).toBe("ctaskid00000000000000001");
-      expect(result.data.currentStage).toBe("任务已创建");
-      expect(result.data.sourceArtifact.artifactName).toBe("从工件发起任务");
+      expect(result.data.currentStage).toBe("已计划");
+      expect(result.data.sourceArtifact?.artifactName).toBe("从工件发起任务");
     }
+  });
+
+  it("keeps the legacy artifact-only wrapper available", async () => {
+    const result = await createTaskFromArtifactAction({
+      workspaceId: "cworkspaceid0000000000001",
+      projectId: "cprojectid0000000000000001",
+      artifactId: "cartifactid000000000000001",
+      goal: "推进 Story 2.2 实现",
+      priority: "high",
+      intent: "implement",
+      preferredAgentType: undefined,
+    });
+
+    expect(result.success).toBe(true);
+    expect(mockArtifactFindFirst).toHaveBeenCalledTimes(1);
   });
 });
 

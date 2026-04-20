@@ -4,12 +4,15 @@ import {
   TASK_AGENT_TYPE_FALLBACK,
   TASK_ARTIFACT_SUMMARY_FALLBACK,
   TASK_RESULT_SUMMARY_FALLBACK,
+  TASK_SOURCE_NAME_FALLBACK,
+  TASK_SOURCE_PATH_FALLBACK,
   buildArtifactTaskHistoryEntries,
   buildArtifactTaskHistoryPayload,
   buildSourceArtifactHref,
   buildTaskDetailHref,
   buildTaskSourceContextSnapshot,
   buildTaskSourcePathText,
+  resolveTaskAgentRuns,
   resolveTaskSourceArtifact,
   resolveTaskSourceHierarchy,
 } from "@/lib/tasks/tracking";
@@ -59,6 +62,16 @@ describe("task tracking helpers", () => {
 
     expect(hierarchy.map((item) => item.type)).toEqual(["PRD", "EPIC", "STORY"]);
     expect(hierarchy.at(-1)?.name).toBe("执行任务与来源工件的追踪映射");
+  });
+
+  it("returns stable no-source fallback copy for manual project tasks", () => {
+    const sourceArtifact = resolveTaskSourceArtifact({
+      sourceArtifact: null,
+      metadata: {},
+    });
+
+    expect(sourceArtifact.name).toBe(TASK_SOURCE_NAME_FALLBACK);
+    expect(sourceArtifact.filePath).toBe(TASK_SOURCE_PATH_FALLBACK);
   });
 
   it("builds Story history entries with truthful execution time and artifact details", () => {
@@ -199,6 +212,85 @@ describe("task tracking helpers", () => {
     );
 
     expect(history.map((item) => item.taskId)).toEqual(["task-older", "task-newer"]);
+  });
+
+  it("prefers relation-first agent runs and keeps reroute chain truthfully ordered", () => {
+    const agentRuns = resolveTaskAgentRuns(
+      {
+        agentRuns: [
+          {
+            id: "legacy-run",
+            agentType: "Codex",
+            status: "done",
+            summary: "旧 metadata 记录",
+          },
+        ],
+      },
+      [
+        {
+          id: "run-previous",
+          agentType: "codex",
+          status: "superseded",
+          decisionSource: "intent-heuristic",
+          selectionReasonCode: "heuristic-codex",
+          selectionReasonSummary: "初次派发到 Codex。",
+          matchedSignals: ["codex:intent-implement"],
+          requestedByUserId: "user-1",
+          createdAt: new Date("2026-04-14T01:20:00.000Z"),
+          startedAt: new Date("2026-04-14T01:25:00.000Z"),
+          completedAt: null,
+          terminatedAt: new Date("2026-04-14T02:08:00.000Z"),
+          supersededAt: new Date("2026-04-14T02:08:00.000Z"),
+          terminationReasonCode: "manual-reroute",
+          terminationReasonSummary: "当前任务更适合方案分析。",
+          replacesRunId: null,
+          replacementRun: { id: "run-current" },
+          metadata: {
+            currentActivity: "旧会话已终止。",
+          },
+        },
+        {
+          id: "run-current",
+          agentType: "claude-code",
+          status: "dispatched",
+          decisionSource: "manual-reroute",
+          selectionReasonCode: "manual-reroute",
+          selectionReasonSummary: "已改派到 Claude Code。",
+          matchedSignals: ["explicit:claude-code"],
+          requestedByUserId: "user-1",
+          createdAt: new Date("2026-04-14T02:10:00.000Z"),
+          startedAt: null,
+          completedAt: null,
+          terminatedAt: null,
+          supersededAt: null,
+          terminationReasonCode: null,
+          terminationReasonSummary: null,
+          replacesRunId: "run-previous",
+          replacementRun: null,
+          metadata: {
+            currentActivity: "已重新派发，等待新会话启动。",
+          },
+        },
+      ],
+      "run-current",
+    );
+
+    expect(agentRuns.map((run) => run.id)).toEqual(["run-current", "run-previous"]);
+    expect(agentRuns[0]).toMatchObject({
+      isCurrent: true,
+      agentType: "claude-code",
+      agentTypeLabel: "Claude Code",
+      statusLabel: "已派发",
+      replacesRunId: "run-previous",
+      summary: "已重新派发，等待新会话启动。",
+    });
+    expect(agentRuns[1]).toMatchObject({
+      isCurrent: false,
+      agentType: "codex",
+      statusLabel: "已替代",
+      replacementRunId: "run-current",
+      terminationReasonSummary: "当前任务更适合方案分析。",
+    });
   });
 
   it("uses stable Chinese fallbacks when no run or artifact data exist", () => {
@@ -400,12 +492,12 @@ describe("task tracking helpers", () => {
           id: "task-active",
           sourceArtifactId: "story-active",
           title: "搭建 Epic 聚合视图",
-          status: "in-progress",
-          currentStage: "正在实现",
-          nextStep: "补齐测试",
+          status: "dispatched",
+          currentStage: "已派发",
+          nextStep: "等待执行监督器创建会话并启动。",
           createdAt: new Date("2026-04-10T02:00:00.000Z"),
           metadata: {
-            currentActivity: "正在整理聚合卡片",
+            currentActivity: "已完成 Agent 路由，等待执行监督器创建会话并启动。",
           },
           sourceArtifact: {
             id: "story-active",
@@ -439,7 +531,8 @@ describe("task tracking helpers", () => {
     expect(payload.items).toEqual([]);
     expect(payload.statusDistribution).toEqual({
       completed: 1,
-      inProgress: 1,
+      inProgress: 0,
+      dispatched: 1,
       pending: 1,
       failed: 1,
     });
@@ -450,7 +543,7 @@ describe("task tracking helpers", () => {
       "Story Pending",
     ]);
     expect(payload.storySummaries.find((item) => item.storyArtifactId === "story-active")).toMatchObject({
-      aggregateStatus: "in-progress",
+      aggregateStatus: "dispatched",
       taskCount: 1,
       latestTaskDetailHref: "/workspace/demo-workspace/project/demo-project/tasks/task-active",
     });

@@ -18,7 +18,7 @@ function createWriter(initialFiles: Record<string, string> = {}) {
         sha: null,
       })),
       writeArtifact: vi.fn(async (input: { path: string; content: string; summary: string }) => {
-        const mode = files.has(input.path) ? "update" : "create";
+        const mode: "create" | "update" = files.has(input.path) ? "update" : "create";
         files.set(input.path, input.content);
         return {
           path: input.path,

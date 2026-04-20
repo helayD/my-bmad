@@ -6,6 +6,7 @@
  * - Termination (manual/system): ExecutionSession.status → "terminated", AgentRun.status → "terminated".
  * - Idempotent: if the session is already gone, record the transition gracefully without error.
  * - Clear activeExecutionSession summary from Task/AgentRun metadata.
+ * - Trigger queue auto-promotion after slot release (§4.5 Task 2.6).
  *
  * This module is called by the executor-supervisor entrypoint when a session ends.
  * It does NOT implement automatic detection of session death — that is Epic 5's responsibility.
@@ -15,6 +16,7 @@ import { Prisma } from "@/generated/prisma/client";
 import { buildExecutionSessionAuditEventData, EXECUTION_SESSION_AUDIT_EVENT_NAMES } from "@/lib/audit/events";
 import { prisma } from "@/lib/db/client";
 import { killSession } from "@/lib/execution/tmux";
+import { onSessionEnded } from "./admission";
 
 export class LifecycleServiceError extends Error {
   code: string;
@@ -94,7 +96,7 @@ export async function endSession(input: EndSessionInput): Promise<EndSessionResu
     ? { completedAt: now }
     : { terminatedAt: now, terminationReasonCode: input.reasonCode, terminationReasonSummary: input.reasonSummary };
 
-  const updatedSession = await prisma.executionSession.update({
+  await prisma.executionSession.update({
     where: { id: session.id },
     data: {
       status: resolvedStatus,
@@ -174,6 +176,12 @@ export async function endSession(input: EndSessionInput): Promise<EndSessionResu
     }),
   ], {
     isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+  });
+
+  // Trigger queue auto-promotion: when a slot frees up, pull the next queued task.
+  // This is non-blocking and safe to do after the transaction commits.
+  onSessionEnded(input.workspaceId).catch((err) => {
+    console.warn(`[endSession] Queue auto-promotion failed: ${err instanceof Error ? err.message : String(err)}`);
   });
 
   return {

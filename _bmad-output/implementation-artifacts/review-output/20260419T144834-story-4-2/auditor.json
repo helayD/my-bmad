@@ -1,0 +1,38 @@
+{
+  "layer": "auditor",
+  "status": "ok",
+  "summary": "按 Story 4.2 的验收标准核对后，当前实现主要有 3 处偏差：`planned` 子状态没有被完整呈现，Epic 聚合没有保留 `dispatched` 真值，以及 manual 推荐 Agent 没有贯通到上层调用方。",
+  "findings": [
+    {
+      "title": "审批中的 planned 任务仍显示可点击的首次派发入口",
+      "detail": "Story 4.2 的 Task 4.4 要求 `planned` 在详情页继续区分“等待派发 / 等待审批 / 等待指定 agent”。当前实现只按 `task.status === \"planned\"` 走 `TaskDispatchCard`，而卡片内部又把所有 `planned` 任务都标成“等待派发”并开放 CTA。对于 `requireApprovalBeforeExecution` 或 `approval-required` 任务，这和服务端真实行为不一致，因为 action 会直接拒绝派发。",
+      "location": "src/components/tasks/task-detail-view.tsx:128",
+      "severity": "medium",
+      "evidence": "`task-detail-view.tsx:128-138` 没有传入任何审批/ready-state 信息；`task-dispatch-card.tsx:45-48,85-109` 把 `planned` 统一描述成可派发；`dispatch.ts:146-149` 又在审批场景直接阻止首次派发。",
+      "rule_or_ac": "Task 4.4 / AC #2, #3",
+      "trigger_condition": "`planned` 任务仍处于审批门控阶段。",
+      "potential_consequence": "详情页会给出错误的下一步操作，用户点击后只能得到失败提示。"
+    },
+    {
+      "title": "Epic 执行历史把 dispatched 重新压回了待执行",
+      "detail": "Task 4.6 明确要求 aggregate helper 识别 `dispatched`，否则 4.2 派发后的任务会在历史视图中失真。当前 Epic 聚合仍只支持 `completed / in-progress / pending / failed`，`dispatched` 只能落回 `pending`。这让“已完成路由但未启动执行”的故事在 Epic 视图里看起来像完全没进入派发。",
+      "location": "src/lib/tasks/tracking.ts:869",
+      "severity": "medium",
+      "evidence": "`tracking.ts:31-36` 没有 `dispatched` 聚合标签；`deriveStoryAggregateStatus()` 没有 `dispatched` 分支；`artifact-task-history.tsx:126-130` 直接展示这些聚合结果。",
+      "rule_or_ac": "Task 4.6 / AC #3",
+      "trigger_condition": "Epic 下某个 Story 的最新任务状态是 `dispatched`。",
+      "potential_consequence": "跨视图状态语义不一致，Epic 控制塔会把已派发 Story 错报成待执行。"
+    },
+    {
+      "title": "manual 路由分支把推荐 Agent 信息丢掉了",
+      "detail": "Task 2.6 允许系统在 manual 工作空间下返回推荐 Agent 作为 UI 默认建议，同时保持 `selection-required`。当前纯路由服务已经产生这份推荐，但 dispatch service 和 action 都把它截断成空 `routingDecision` + 通用错误码，导致 UI 无法预填推荐值，也无法展示推荐理由。",
+      "location": "src/lib/execution/dispatch.ts:166",
+      "severity": "low",
+      "evidence": "`routing.ts` 的 `TaskRoutingSelectionRequiredDecision` 包含 `recommendedAgentType`；`dispatch.ts:166-180` 抛弃了该对象；`execution-actions.ts:73-83` 进一步只返回 `TASK_AGENT_SELECTION_REQUIRED`。",
+      "rule_or_ac": "Task 2.6",
+      "trigger_condition": "manual 工作空间下首次派发、且任务没有显式 Agent 偏好。",
+      "potential_consequence": "manual 派发失去系统推荐默认值，降低可解释性和操作效率。"
+    }
+  ],
+  "parsing_notes": []
+}

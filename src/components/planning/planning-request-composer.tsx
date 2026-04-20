@@ -870,6 +870,13 @@ export function PlanningRequestComposer({
         isPending={isSubmitting || handoffDialogState.isLoading}
         onToggleDeferredStory={handleToggleDeferredStory}
         onToggleDeferredTask={handleToggleDeferredTask}
+        onOpenDetail={() => {
+          const currentRequest = handoffDialogState.request;
+          closeHandoffDialog();
+          if (currentRequest) {
+            handleOpenPlanningDetail(currentRequest);
+          }
+        }}
         onConfirm={handleConfirmHandoff}
       />
     </>
@@ -1029,7 +1036,7 @@ export function PlanningRequestComposerView({
   );
 }
 
-function PlanningRequestHandoffDialog({
+export function PlanningRequestHandoffDialog({
   open,
   onOpenChange,
   preview,
@@ -1039,6 +1046,7 @@ function PlanningRequestHandoffDialog({
   isPending,
   onToggleDeferredStory,
   onToggleDeferredTask,
+  onOpenDetail,
   onConfirm,
 }: {
   open: boolean;
@@ -1050,12 +1058,14 @@ function PlanningRequestHandoffDialog({
   isPending: boolean;
   onToggleDeferredStory: (storyArtifactId: string, checked: boolean) => void;
   onToggleDeferredTask: (taskArtifactId: string, checked: boolean) => void;
+  onOpenDetail: () => void;
   onConfirm: () => void;
 }) {
   const deferredTaskCount = getDeferredTaskCount(preview, deferredArtifactIds);
   const confirmedTaskCount = preview
     ? Math.max(0, preview.candidateTaskCount - deferredTaskCount)
     : 0;
+  const hasEmptyPreview = preview?.candidateTaskCount === 0;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -1105,7 +1115,7 @@ function PlanningRequestHandoffDialog({
             <Alert>
               <AlertTitle>暂无可执行任务</AlertTitle>
               <AlertDescription>
-                当前规划产出尚未形成可执行任务条目，因此这次确认不会生成执行任务。你可以先补充 Story 细节或重新运行规划。
+                当前规划产出尚未形成可执行任务条目，因此这次确认不会生成执行任务。请先补充用户故事或任务内容，再回到这里继续确认。
               </AlertDescription>
             </Alert>
           ) : null}
@@ -1140,7 +1150,7 @@ function PlanningRequestHandoffDialog({
                               }
                               disabled={isPending}
                             />
-                            <span>整个 Story 暂不执行</span>
+                            <span>整个用户故事暂不执行</span>
                           </label>
                         </div>
 
@@ -1184,20 +1194,26 @@ function PlanningRequestHandoffDialog({
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={isPending}>
             取消
           </Button>
-          <Button
-            type="button"
-            onClick={onConfirm}
-            disabled={isPending || !preview || preview.candidateTaskCount === 0}
-          >
-            {isPending ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                确认中…
-              </>
-            ) : (
-              "确认并生成执行任务"
-            )}
-          </Button>
+          {hasEmptyPreview ? (
+            <Button type="button" onClick={onOpenDetail} disabled={isPending || !request}>
+              查看链路详情
+            </Button>
+          ) : (
+            <Button
+              type="button"
+              onClick={onConfirm}
+              disabled={isPending || !preview}
+            >
+              {isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  确认中…
+                </>
+              ) : (
+                "确认并生成执行任务"
+              )}
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatRelativeTime } from "@/lib/utils";
 import { PlanningRequestComposer } from "@/components/planning/planning-request-composer";
+import { ProjectTaskCreateSheet } from "@/components/tasks/project-task-create-sheet";
 import { ProjectBmadArtifacts } from "@/components/workspace/project-bmad-artifacts";
 import { ProjectNoRepo } from "@/components/workspace/project-no-repo";
 import { ArtifactTree } from "@/components/artifacts/artifact-tree";
@@ -149,11 +150,21 @@ export default async function ProjectPage({ params, searchParams }: ProjectPageP
 
       {/* Project header */}
       <div className="space-y-2">
-        <div className="flex items-center gap-2">
-          <h1 className="text-2xl font-bold tracking-tight">{project.name}</h1>
-          <Badge variant={statusVariant[project.status] ?? "outline"}>
-            {project.status}
-          </Badge>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-bold tracking-tight">{project.name}</h1>
+            <Badge variant={statusVariant[project.status] ?? "outline"}>
+              {project.status}
+            </Badge>
+          </div>
+          <ProjectTaskCreateSheet
+            workspaceId={workspace.id}
+            workspaceSlug={slug}
+            projectId={project.id}
+            projectSlug={projectSlug}
+            projectName={project.name}
+            initialArtifactId={artifactId}
+          />
         </div>
         <div className="flex items-center gap-3 text-sm text-muted-foreground">
           {repoLabel ? (

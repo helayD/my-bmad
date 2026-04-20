@@ -1,6 +1,6 @@
 # Story 2.1: BMAD 工件层级模型与解析引擎
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -413,7 +413,8 @@ Cascade
 - `pnpm test src/lib/artifacts/__tests__/scanner.test.ts src/lib/artifacts/__tests__/sync.test.ts src/lib/artifacts/__tests__/artifact-tree.test.ts`
 - `pnpm lint`
 - `pnpm build`
-- `pnpm test`
+- `DATABASE_URL=[isolated-test-db] pnpm prisma migrate deploy`
+- `DATABASE_URL=[isolated-test-db] pnpm test`
 
 ### Completion Notes List
 
@@ -421,11 +422,13 @@ Cascade
 - ✅ 补齐 `TASK` 工件提取与 `TASK -> STORY` 层级关联，满足验收标准中的 `PRD -> Epic -> Story -> Task` 结构要求
 - ✅ 为扫描器与同步器新增回归测试，覆盖 Story checkbox 任务提取、任务层级父子关系与增量同步行为
 - ✅ 为确保质量门禁通过，补充了 Vitest/ESLint 的必要配置并修正了既有测试中的过时断言
-- ✅ `pnpm lint`、`pnpm test`、`pnpm build` 全部通过
+- ✅ 使用隔离的 `*_test` 数据库补齐 Prisma 迁移后，`pnpm test` 全量 46 个测试文件、410 个测试全部通过
+- ✅ `pnpm lint` 与 `pnpm build` 通过；仓库中仍存在少量与本 Story 无关的 warning，但未阻塞本次交付
 
 ### Change Log
 
 - 2026-04-08：完成 Story 2.1 实施与验证，补齐 TASK 工件解析、层级同步、结构化工件树展示与质量门禁修复
+- 2026-04-14：补齐隔离 test DB 验证与实现交接，更新 Story/Sprint 状态为 review
 
 ### File List
 
@@ -450,3 +453,6 @@ Cascade
 - `src/lib/workspace/__tests__/remove-member.test.ts`
 - `eslint.config.mjs`
 - `vitest.config.mts`
+- `_bmad-output/implementation-artifacts/2-1-BMAD工件层级模型与解析引擎.md`
+- `_bmad-output/implementation-artifacts/dev-story-output/2-1-BMAD工件层级模型与解析引擎/implementation-handoff.md`
+- `_bmad-output/implementation-artifacts/sprint-status.yaml`
