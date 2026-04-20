@@ -17,6 +17,7 @@ import { buildExecutionSessionAuditEventData, EXECUTION_SESSION_AUDIT_EVENT_NAME
 import { prisma } from "@/lib/db/client";
 import { killSession } from "@/lib/execution/tmux";
 import { onSessionEnded } from "./admission";
+import { isValidTransition } from "@/lib/execution/state-machine/validator";
 
 export class LifecycleServiceError extends Error {
   code: string;
@@ -114,9 +115,18 @@ export async function endSession(input: EndSessionInput): Promise<EndSessionResu
   ]);
 
   const runStatus = input.reason === "completed" ? "completed" : "terminated";
+  const taskTargetStatus = input.reason === "completed" ? "completed" : "terminated";
   const auditEventName = input.reason === "completed"
     ? EXECUTION_SESSION_AUDIT_EVENT_NAMES.completed
     : EXECUTION_SESSION_AUDIT_EVENT_NAMES.terminated;
+  const stateTransitionTrigger = input.reason === "completed" ? "agent_complete" : "agent_error";
+
+  // Validate state machine transition.
+  if (!isValidTransition(task?.status ?? "running", taskTargetStatus)) {
+    const msg = `状态机拒绝：从「${task?.status ?? "?"}」不能转换到「${taskTargetStatus}」`;
+    console.warn(`[endSession] ${msg}`);
+    throw new LifecycleServiceError("INVALID_STATE_TRANSITION", msg);
+  }
 
   await prisma.$transaction([
     prisma.agentRun.update({
@@ -142,8 +152,11 @@ export async function endSession(input: EndSessionInput): Promise<EndSessionResu
     prisma.task.update({
       where: { id: input.taskId },
       data: {
-        status: input.reason === "completed" ? "done" : task?.status ?? "in-progress",
+        status: taskTargetStatus,
         currentStage: input.reason === "completed" ? "已完成" : "已终止",
+        currentActivity: input.reason === "completed"
+          ? "执行会话已正常结束。"
+          : `执行会话已被终止：${input.reasonSummary ?? ""}`,
         nextStep: input.reason === "completed"
           ? "执行已结束，等待结果整理。"
           : "执行已被终止，等待重新派发。",
@@ -153,6 +166,19 @@ export async function endSession(input: EndSessionInput): Promise<EndSessionResu
             : `执行会话已被终止：${input.reasonSummary ?? ""}`,
           activeExecutionSession: Prisma.JsonNull,
         }) as Prisma.InputJsonValue,
+      },
+    }),
+    prisma.taskStateEvent.create({
+      data: {
+        taskId: input.taskId,
+        agentRunId: input.agentRunId,
+        fromStatus: task?.status ?? "running",
+        toStatus: taskTargetStatus,
+        trigger: stateTransitionTrigger,
+        reason: input.reasonSummary ?? input.reasonCode ?? null,
+        actorType: input.reason === "completed" ? "system" : "agent",
+        actorId: null,
+        rejected: false,
       },
     }),
     prisma.auditEvent.create({

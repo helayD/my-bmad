@@ -2,6 +2,7 @@ import { Prisma } from "@/generated/prisma/client";
 import { buildTaskAuditEventData, TASK_AUDIT_EVENT_NAMES } from "@/lib/audit/events";
 import { prisma } from "@/lib/db/client";
 import { buildTaskRoutingDecisionSummary, resolveTaskRoutingDecision } from "@/lib/execution/routing";
+import { isValidTransition, getTransitionError } from "@/lib/execution/state-machine/validator";
 import {
   isTaskApprovalRequiredForDispatch,
   TASK_AGENT_TYPE_LABELS,
@@ -27,6 +28,7 @@ const TASK_FOR_DISPATCH_SELECT = {
   preferredAgentType: true,
   status: true,
   currentStage: true,
+  currentActivity: true,
   nextStep: true,
   currentAgentRunId: true,
   metadata: true,
@@ -135,7 +137,7 @@ export async function dispatchTask(
       taskId: task.id,
       status: task.status,
       currentStage: task.currentStage,
-      currentActivity: resolveTaskCurrentActivity(task),
+      currentActivity: task.currentActivity || resolveTaskCurrentActivity(task),
       nextStep: task.nextStep,
       routingDecision: resolveRoutingDecisionFromMetadata(task.metadata),
       currentAgentRun: mapAgentRunView(task.currentAgentRun, task.currentAgentRunId),
@@ -150,6 +152,12 @@ export async function dispatchTask(
 
   if (task.status !== "planned") {
     throw new DispatchServiceError("TASK_DISPATCH_NOT_READY");
+  }
+
+  // State machine validation: ensure planned → dispatched is a valid transition.
+  if (!isValidTransition(task.status, "dispatched")) {
+    const error = getTransitionError(task.status, "dispatched");
+    throw new DispatchServiceError("INVALID_TRANSITION", error);
   }
 
   const workspaceSettings = resolveWorkspaceGovernanceSettings(task.workspace.settings);
@@ -272,9 +280,24 @@ export async function dispatchTask(
         data: {
           status: "dispatched",
           currentStage: "已派发",
+          currentActivity: "已完成 Agent 路由，等待执行监督器创建会话并启动。",
           nextStep: "等待执行监督器创建会话并启动。",
           currentAgentRunId: createdRun.id,
           metadata: nextMetadata as Prisma.InputJsonValue,
+        },
+      });
+
+      await tx.taskStateEvent.create({
+        data: {
+          taskId: task.id,
+          agentRunId: createdRun.id,
+          fromStatus: "planned",
+          toStatus: "dispatched",
+          trigger: "user_dispatch",
+          reason: "用户派发任务",
+          actorType: "user",
+          actorId: input.actorUserId,
+          rejected: false,
         },
       });
 

@@ -33,6 +33,7 @@ import { prisma } from "@/lib/db/client";
 import {
   resolveAgentLaunchCommand,
 } from "@/lib/execution/catalog";
+import { isValidTransition } from "@/lib/execution/state-machine/validator";
 import {
   isTmuxAvailable,
   createSession,
@@ -330,6 +331,15 @@ export async function launchTask(input: LaunchTaskInput): Promise<LaunchTaskResu
       startedAt: now.toISOString(),
     };
 
+    // ── Phase 3: two-step task state transition (within the same transaction) ──
+    // Step A: dispatched → starting
+    if (!isValidTransition(task.status, "starting")) {
+      throw new LaunchServiceError(
+        "TASK_LAUNCH_NOT_DISPATCHED",
+        `状态机拒绝：从「${task.status}」不能转换到「starting」`,
+      );
+    }
+
     await prisma.$transaction([
       prisma.agentRun.update({
         where: { id: input.agentRunId },
@@ -343,15 +353,55 @@ export async function launchTask(input: LaunchTaskInput): Promise<LaunchTaskResu
         },
       }),
       prisma.task.update({
-        where: { id: input.taskId },
+        where: { id: input.taskId, status: task.status },
         data: {
-          status: "in-progress",
-          currentStage: "执行中",
+          status: "starting",
+          currentStage: "启动中",
+          currentActivity: "执行监督器正在创建 tmux 会话",
+          nextStep: "正在启动 Agent",
+        },
+      }),
+      prisma.taskStateEvent.create({
+        data: {
+          taskId: input.taskId,
+          agentRunId: input.agentRunId,
+          fromStatus: task.status,
+          toStatus: "starting",
+          trigger: "system_start",
+          reason: "执行监督器开始创建会话",
+          actorType: "system",
+          actorId: null,
+          rejected: false,
+        },
+      }),
+    ], { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+
+    // Step B: starting → running (atomic within the same db call)
+    await prisma.$transaction([
+      prisma.task.update({
+        where: { id: input.taskId, status: "starting" },
+        data: {
+          status: "running",
+          currentStage: "运行中",
+          currentActivity: "执行监督器已创建 tmux 会话，Agent 正在运行。",
           nextStep: "Agent 正在运行，监督器持续监控中。",
           metadata: mergeTaskMetadata(task.metadata, {
             currentActivity: "执行监督器已创建 tmux 会话，Agent 正在运行。",
             activeExecutionSession: sessionSummary,
           }) as Prisma.InputJsonValue,
+        },
+      }),
+      prisma.taskStateEvent.create({
+        data: {
+          taskId: input.taskId,
+          agentRunId: input.agentRunId,
+          fromStatus: "starting",
+          toStatus: "running",
+          trigger: "agent_complete",
+          reason: "Agent 已成功启动",
+          actorType: "system",
+          actorId: null,
+          rejected: false,
         },
       }),
       prisma.auditEvent.create({
@@ -373,9 +423,7 @@ export async function launchTask(input: LaunchTaskInput): Promise<LaunchTaskResu
           },
         }),
       }),
-    ], {
-      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-    });
+    ], { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
     return {
       executionSessionId: session.id,
@@ -427,12 +475,27 @@ async function recordLaunchFailure(opts: {
     prisma.task.updateMany({
       where: { id: opts.task.id, currentAgentRunId: opts.agentRunId },
       data: {
+        status: "failed",
         currentStage: "会话启动失败",
+        currentActivity: opts.errorMessage,
         nextStep: "等待修复环境后重试或重新派发。",
         metadata: mergeTaskMetadata(opts.task.metadata, {
           currentActivity: opts.errorMessage,
           activeExecutionSession: null,
         }) as Prisma.InputJsonValue,
+      },
+    }),
+    prisma.taskStateEvent.create({
+      data: {
+        taskId: opts.task.id,
+        agentRunId: opts.agentRunId,
+        fromStatus: opts.task.status,
+        toStatus: "failed",
+        trigger: "agent_error",
+        reason: opts.errorMessage,
+        actorType: "system",
+        actorId: null,
+        rejected: false,
       },
     }),
     prisma.auditEvent.create({

@@ -52,6 +52,9 @@ function createTx() {
     auditEvent: {
       create: mockTxAuditEventCreate,
     },
+    taskStateEvent: {
+      create: vi.fn(),
+    },
   };
 }
 
@@ -130,8 +133,13 @@ describe("writeback helpers", () => {
 
   it("resolves terminal outcome correctly", () => {
     expect(resolveTaskTerminalOutcome({ status: "done", metadata: null })).toBe("completed");
+    expect(resolveTaskTerminalOutcome({ status: "completed", metadata: null })).toBe("completed");
     expect(resolveTaskTerminalOutcome({ status: "blocked", metadata: {} })).toBe("failed");
+    expect(resolveTaskTerminalOutcome({ status: "failed", metadata: {} })).toBe("failed");
+    expect(resolveTaskTerminalOutcome({ status: "terminated", metadata: {} })).toBe("failed");
     expect(resolveTaskTerminalOutcome({ status: "blocked", metadata: { interrupted: true } })).toBe("interrupted");
+    expect(resolveTaskTerminalOutcome({ status: "failed", metadata: { interrupted: true } })).toBe("interrupted");
+    expect(resolveTaskTerminalOutcome({ status: "terminated", metadata: { interrupted: true } })).toBe("interrupted");
     expect(resolveTaskTerminalOutcome({ status: "review", metadata: {} })).toBeNull();
   });
 });
@@ -226,7 +234,7 @@ describe("applyTaskTerminalStateWriteback", () => {
     }));
 
     const result = await applyTaskTerminalStateWriteback(createInput({
-      status: "blocked",
+      status: "failed",
       nextStep: "请重试执行",
       metadata: { interrupted: true },
     }));

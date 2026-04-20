@@ -27,7 +27,9 @@ const TASK_FOR_WRITEBACK_SELECT = {
   summary: true,
   status: true,
   currentStage: true,
+  currentActivity: true,
   nextStep: true,
+  currentAgentRunId: true,
   metadata: true,
   sourceArtifact: {
     select: {
@@ -70,6 +72,15 @@ export function resolveTaskTerminalOutcome(input: {
   status: string;
   metadata: unknown;
 }): WritebackOutcome | null {
+  // New state machine terminal statuses
+  if (input.status === "completed") {
+    return "completed";
+  }
+  if (input.status === "failed" || input.status === "terminated") {
+    return isInterruptedMetadata(input.metadata) ? "interrupted" : "failed";
+  }
+
+  // Legacy status mappings
   if (input.status === "done") {
     return "completed";
   }
@@ -152,8 +163,23 @@ export async function applyTaskTerminalStateWriteback(
         data: {
           status: input.status,
           currentStage: input.currentStage,
+          currentActivity: currentActivity,
           nextStep: input.nextStep,
           metadata: mergedMetadata as unknown as Prisma.InputJsonValue,
+        },
+      });
+
+      await tx.taskStateEvent.create({
+        data: {
+          taskId: task.id,
+          agentRunId: task.currentAgentRunId ?? null,
+          fromStatus: task.status,
+          toStatus: input.status,
+          trigger: "agent_complete",
+          reason: `任务进入终态：${input.status}`,
+          actorType: "system",
+          actorId: null,
+          rejected: false,
         },
       });
 
@@ -296,6 +322,7 @@ async function recordFailedWriteback(input: {
   });
 
   await prisma.$transaction(async (tx) => {
+
     await tx.task.update({
       where: { id: input.task.id },
       data: {
@@ -303,6 +330,20 @@ async function recordFailedWriteback(input: {
         currentStage: input.input.currentStage,
         nextStep: input.input.nextStep,
         metadata: input.mergedMetadata as unknown as Prisma.InputJsonValue,
+      },
+    });
+
+    await tx.taskStateEvent.create({
+      data: {
+        taskId: input.task.id,
+        agentRunId: input.task.currentAgentRunId ?? null,
+        fromStatus: input.task.status,
+        toStatus: input.input.status,
+        trigger: "writeback_failed",
+        reason: `回写失败：${errorSummary}`,
+        actorType: "system",
+        actorId: null,
+        rejected: false,
       },
     });
 

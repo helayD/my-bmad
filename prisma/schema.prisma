@@ -236,6 +236,7 @@ model Task {
   preferredAgentType String?
   status           String        @default("pending")
   currentStage     String
+  currentActivity  String        @default("")
   nextStep         String
   currentAgentRunId String?
   metadata         Json?
@@ -252,6 +253,7 @@ model Task {
   currentAgentRun  AgentRun?     @relation("TaskCurrentAgentRun", fields: [currentAgentRunId], references: [id], onDelete: SetNull)
   executionSessions ExecutionSession[] @relation("TaskExecutionSessions")
   writebacks       Writeback[]
+  stateEvents     TaskStateEvent[]
   auditEvents      AuditEvent[]
 
   @@index([workspaceId])
@@ -264,6 +266,26 @@ model Task {
   @@index([projectId, planningRequestId])
   @@unique([planningRequestId, sourceArtifactId])
   @@map("tasks")
+}
+
+model TaskStateEvent {
+  id         String   @id @default(cuid())
+  taskId     String
+  agentRunId String?
+  fromStatus String
+  toStatus   String
+  trigger    String
+  reason     String?
+  actorType  String
+  actorId    String?
+  rejected   Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId, createdAt])
+  @@index([taskId, toStatus])
+  @@index([taskId, fromStatus])
 }
 
 model AgentRun {

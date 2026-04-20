@@ -21,6 +21,15 @@ vi.mock("./task-dispatch-card", () => ({
   TaskDispatchCard: () => <div>首次派发卡片</div>,
 }));
 
+vi.mock("./state-timeline", () => ({
+  StateTimeline: ({ events, currentStatus }: { events: unknown[]; currentStatus: string }) => (
+    <div data-testid="state-timeline">
+      <span data-testid="timeline-event-count">{events.length}</span>
+      <span data-testid="timeline-current-status">{currentStatus}</span>
+    </div>
+  ),
+}));
+
 type TaskDetailTask = Parameters<typeof TaskDetailView>[0]["task"];
 
 function createWriteback(overrides: Partial<TaskWritebackView> = {}): TaskWritebackView {
@@ -189,8 +198,8 @@ describe("TaskDetailView", () => {
       />,
     );
 
-    expect(markup).toContain("待处理");
-    expect(markup).not.toContain("待处理（旧）");
+    expect(markup).toContain("排队中");
+    expect(markup).not.toContain("待处理");
   });
 
   it("shows planned status plus intent detail and preferred agent fields", () => {
@@ -275,5 +284,120 @@ describe("TaskDetailView: concurrency queue card (§4.5)", () => {
     );
     expect(markup).toContain("任务详情");
     expect(markup).not.toContain("执行队列状态");
+  });
+});
+
+describe("TaskDetailView: state machine UI (§5)", () => {
+  function createStateMachineTask(overrides: Partial<Parameters<typeof TaskDetailView>[0]["task"]> = {}) {
+    return createTask({
+      status: "running",
+      currentStage: "运行中",
+      nextStep: "Agent 正在执行任务",
+      ...overrides,
+    });
+  }
+
+  it("renders StateTimeline with state events when provided", () => {
+    const events = [
+      {
+        id: "event-1",
+        fromStatus: "planned",
+        toStatus: "dispatched",
+        trigger: "user_dispatch",
+        reason: null,
+        actorType: "user",
+        rejected: false,
+        createdAt: new Date("2026-04-20T10:00:00.000Z"),
+      },
+      {
+        id: "event-2",
+        fromStatus: "dispatched",
+        toStatus: "starting",
+        trigger: "system_start",
+        reason: null,
+        actorType: "system",
+        rejected: false,
+        createdAt: new Date("2026-04-20T10:01:00.000Z"),
+      },
+      {
+        id: "event-3",
+        fromStatus: "starting",
+        toStatus: "running",
+        trigger: "system_start",
+        reason: null,
+        actorType: "system",
+        rejected: false,
+        createdAt: new Date("2026-04-20T10:02:00.000Z"),
+      },
+    ];
+
+    const markup = renderToStaticMarkup(
+      <TaskDetailView
+        task={createStateMachineTask({ status: "running" })}
+        sourceHierarchy={[]}
+        stateEvents={events}
+      />,
+    );
+
+    expect(markup).toContain('data-testid="state-timeline"');
+    expect(markup).toContain('data-testid="timeline-event-count"');
+    expect(markup).toContain('data-testid="timeline-current-status"');
+  });
+
+  it("renders StateTimeline with zero events when empty", () => {
+    const markup = renderToStaticMarkup(
+      <TaskDetailView
+        task={createStateMachineTask()}
+        sourceHierarchy={[]}
+        stateEvents={[]}
+      />,
+    );
+
+    expect(markup).toContain('data-testid="state-timeline"');
+    expect(markup).toContain('data-testid="timeline-event-count"');
+  });
+
+  it("renders TaskStatusBadge with correct semantic colors for completed status", () => {
+    const markup = renderToStaticMarkup(
+      <TaskDetailView
+        task={createStateMachineTask({ status: "completed" })}
+        sourceHierarchy={[]}
+      />,
+    );
+
+    expect(markup).toContain("已完成");
+  });
+
+  it("renders TaskStatusBadge with correct semantic colors for failed status", () => {
+    const markup = renderToStaticMarkup(
+      <TaskDetailView
+        task={createStateMachineTask({ status: "failed" })}
+        sourceHierarchy={[]}
+      />,
+    );
+
+    expect(markup).toContain("执行失败");
+  });
+
+  it("renders TaskStatusCategoryBadge for active status", () => {
+    const markup = renderToStaticMarkup(
+      <TaskDetailView
+        task={createStateMachineTask({ status: "running" })}
+        sourceHierarchy={[]}
+      />,
+    );
+
+    expect(markup).toContain("进行中");
+  });
+
+  it("renders TaskStatusCategoryBadge for terminal status", () => {
+    const markup = renderToStaticMarkup(
+      <TaskDetailView
+        task={createStateMachineTask({ status: "completed" })}
+        sourceHierarchy={[]}
+      />,
+    );
+
+    expect(markup).toContain("终态");
   });
 });

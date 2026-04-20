@@ -440,3 +440,91 @@ export function buildExecutionBoundaryAuditEventData(
     payload: toAuditPayloadJson(input.payload),
   };
 }
+
+// ── Task State Transition ───────────────────────────────────────────────────────
+
+export const TASK_STATE_AUDIT_EVENT_NAMES = {
+  transitioned: "task.state.transitioned",
+  rejected: "task.state.rejected",
+} as const;
+
+export type TaskStateAuditEventName =
+  (typeof TASK_STATE_AUDIT_EVENT_NAMES)[keyof typeof TASK_STATE_AUDIT_EVENT_NAMES];
+
+export interface TaskStateTransitionAuditPayload {
+  taskId: string;
+  fromStatus: string;
+  toStatus: string;
+  trigger: string;
+  reason?: string;
+  agentRunId?: string;
+  actorType: string;
+  actorId?: string;
+  rejected?: boolean;
+}
+
+export function buildTaskStateTransitionAuditEvent(data: {
+  taskId: string;
+  workspaceId: string;
+  projectId: string;
+  agentRunId?: string;
+  fromStatus: string;
+  toStatus: string;
+  trigger: string;
+  reason?: string;
+  actorType: string;
+  actorId?: string;
+  rejected?: boolean;
+}): Prisma.AuditEventUncheckedCreateInput {
+  const eventName = data.rejected
+    ? TASK_STATE_AUDIT_EVENT_NAMES.rejected
+    : TASK_STATE_AUDIT_EVENT_NAMES.transitioned;
+
+  return {
+    workspaceId: data.workspaceId,
+    projectId: data.projectId,
+    taskId: data.taskId,
+    artifactId: null,
+    eventName,
+    occurredAt: new Date(),
+    payload: toAuditPayloadJson({
+      fromStatus: data.fromStatus,
+      toStatus: data.toStatus,
+      trigger: data.trigger,
+      reason: data.reason,
+      agentRunId: data.agentRunId,
+      actorType: data.actorType,
+      actorId: data.actorId,
+      rejected: data.rejected,
+    }),
+  };
+}
+
+export async function triggerStateTransitionAudit(params: {
+  taskId: string;
+  agentRunId?: string;
+  fromStatus: string;
+  toStatus: string;
+  trigger: string;
+}): Promise<void> {
+  const { prisma } = await import("@/lib/db/client");
+  const task = await prisma.task.findUnique({
+    where: { id: params.taskId },
+    select: { workspaceId: true, projectId: true },
+  });
+
+  if (!task) return;
+
+  const auditEvent = buildTaskStateTransitionAuditEvent({
+    taskId: params.taskId,
+    workspaceId: task.workspaceId,
+    projectId: task.projectId,
+    agentRunId: params.agentRunId,
+    fromStatus: params.fromStatus,
+    toStatus: params.toStatus,
+    trigger: params.trigger,
+    actorType: "system",
+  });
+
+  await prisma.auditEvent.create({ data: auditEvent });
+}

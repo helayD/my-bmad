@@ -733,3 +733,104 @@ function parseTaskBoundarySnapshot(
     boundaryNextStep: hasProfile ? ((record.boundaryNextStep as string | null) ?? null) : null,
   };
 }
+
+// ── Task State Events ─────────────────────────────────────────────────────────────────
+
+export interface TaskStateEventRecord {
+  id: string;
+  taskId: string;
+  agentRunId: string | null;
+  fromStatus: string;
+  toStatus: string;
+  trigger: string;
+  reason: string | null;
+  actorType: string;
+  actorId: string | null;
+  rejected: boolean;
+  createdAt: Date;
+}
+
+export async function getTaskStateHistory(
+  taskId: string,
+  options?: { limit?: number; includeRejected?: boolean },
+): Promise<TaskStateEventRecord[]> {
+  const where: Prisma.TaskStateEventWhereInput = { taskId };
+  if (!options?.includeRejected) {
+    where.rejected = false;
+  }
+
+  const records = await prisma.taskStateEvent.findMany({
+    where,
+    orderBy: { createdAt: "asc" },
+    take: options?.limit,
+  });
+
+  return records;
+}
+
+export async function getTaskCurrentState(taskId: string): Promise<{
+  status: string;
+  currentStage: string;
+  currentActivity: string;
+  nextStep: string;
+} | null> {
+  const task = await prisma.task.findUnique({
+    where: { id: taskId },
+    select: {
+      status: true,
+      currentStage: true,
+      currentActivity: true,
+      nextStep: true,
+    },
+  });
+  return task;
+}
+
+export async function getTaskStateTransitionSummary(taskId: string): Promise<{
+  totalTransitions: number;
+  rejectedTransitions: number;
+  lastTransition: { fromStatus: string; toStatus: string; createdAt: Date } | null;
+  currentStateAge: string;
+}> {
+  const [totalCount, rejectedCount, task, lastEvent] = await Promise.all([
+    prisma.taskStateEvent.count({ where: { taskId } }),
+    prisma.taskStateEvent.count({ where: { taskId, rejected: true } }),
+    prisma.task.findUnique({
+      where: { id: taskId },
+      select: { status: true, updatedAt: true },
+    }),
+    prisma.taskStateEvent.findFirst({
+      where: { taskId },
+      orderBy: { createdAt: "desc" },
+      select: { fromStatus: true, toStatus: true, createdAt: true },
+    }),
+  ]);
+
+  const stateAge = task?.updatedAt
+    ? formatDurationFromNow(task.updatedAt)
+    : "未知";
+
+  return {
+    totalTransitions: totalCount,
+    rejectedTransitions: rejectedCount,
+    lastTransition: lastEvent
+      ? { fromStatus: lastEvent.fromStatus, toStatus: lastEvent.toStatus, createdAt: lastEvent.createdAt }
+      : null,
+    currentStateAge: stateAge,
+  };
+}
+
+function formatDurationFromNow(date: Date): string {
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffSeconds = Math.floor(diffMs / 1000);
+  if (diffSeconds < 60) return "刚刚";
+  const diffMinutes = Math.floor(diffSeconds / 60);
+  if (diffMinutes < 60) return `${diffMinutes}分钟前`;
+  const diffHours = Math.floor(diffMinutes / 60);
+  if (diffHours < 24) return `${diffHours}小时前`;
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffDays < 30) return `${diffDays}天前`;
+  const diffMonths = Math.floor(diffDays / 30);
+  return `${diffMonths}个月前`;
+}

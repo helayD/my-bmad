@@ -1,8 +1,9 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { ArrowLeft, ArrowUpRight, Sparkles } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ArrowUpRight, CheckCircle, CheckCheck, Circle, Clock, Database, FileText, Loader, MessageCircle, Play, RotateCw, Send, Sparkles, Square, XCircle } from "lucide-react";
 import { TaskDispatchCard } from "@/components/tasks/task-dispatch-card";
 import { TaskRedispatchCard } from "@/components/tasks/task-redispatch-card";
+import { StateTimeline } from "@/components/tasks/state-timeline";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -29,6 +30,13 @@ import {
   type TaskStatus,
   type TaskWritebackView,
 } from "@/lib/tasks";
+import {
+  STATUS_CATEGORY,
+  STATUS_CATEGORY_LABELS,
+  STATUS_LABELS,
+  STATUS_SEMANTICS,
+  type TaskStatus as TaskStatusSM,
+} from "@/lib/execution/state-machine";
 
 interface TaskDetailViewProps {
   task: {
@@ -85,12 +93,23 @@ interface TaskDetailViewProps {
   };
   sourceHierarchy: TaskSourceHierarchyItem[];
   canManageExecution?: boolean;
+  stateEvents?: Array<{
+    id: string;
+    fromStatus: string;
+    toStatus: string;
+    trigger: string;
+    reason: string | null;
+    actorType: string;
+    rejected: boolean;
+    createdAt: Date;
+  }>;
 }
 
 export function TaskDetailView({
   task,
   sourceHierarchy,
   canManageExecution = false,
+  stateEvents = [],
 }: TaskDetailViewProps) {
   const currentActivity = resolveTaskCurrentActivity({
     metadata: task.metadata,
@@ -108,7 +127,8 @@ export function TaskDetailView({
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center gap-3">
-        <Badge>{resolveStatusLabel(task.status)}</Badge>
+        <TaskStatusBadge status={task.status} />
+        <TaskStatusCategoryBadge status={task.status} />
         <Badge variant="outline">优先级：{resolvePriorityLabel(task.priority)}</Badge>
         <Badge variant="outline">执行意图：{resolveIntentLabel(task.intent)}</Badge>
       </div>
@@ -237,6 +257,8 @@ export function TaskDetailView({
         />
       )}
 
+      <StateTimeline events={stateEvents} currentStatus={task.status} />
+
       <Card>
         <CardHeader>
           <CardTitle>回写状态</CardTitle>
@@ -358,6 +380,66 @@ function StatusCard({ label, value, icon }: { label: string; value: string; icon
 
 function resolveStatusLabel(value: string) {
   return TASK_STATUS_LABELS[(value as TaskStatus) ?? "pending"] ?? value;
+}
+
+const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
+  FileText,
+  Clock,
+  Send,
+  Loader,
+  Play,
+  MessageCircle,
+  RotateCw,
+  AlertTriangle,
+  CheckCircle,
+  XCircle,
+  Square,
+  Database,
+  CheckCheck,
+  Circle,
+};
+
+function TaskStatusBadge({ status }: { status: string }) {
+  const semantics = STATUS_SEMANTICS[status as TaskStatusSM];
+  const label = STATUS_LABELS[status as TaskStatusSM]?.zh ?? status;
+  const Icon = semantics ? ICON_MAP[semantics.icon] ?? Circle : Circle;
+
+  const colorClass = semantics?.color === "primary"
+    ? "bg-primary/10 text-primary border-primary/20"
+    : semantics?.color === "success"
+      ? "bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/20"
+      : semantics?.color === "warning"
+        ? "bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 border-yellow-500/20"
+        : semantics?.color === "danger"
+          ? "bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20"
+          : "bg-muted text-muted-foreground border-muted";
+
+  return (
+    <Badge className={`gap-1.5 border ${colorClass}`}>
+      <Icon className="h-3.5 w-3.5" />
+      {label}
+    </Badge>
+  );
+}
+
+function TaskStatusCategoryBadge({ status }: { status: string }) {
+  const category = STATUS_CATEGORY[status as TaskStatusSM];
+  if (!category) return null;
+
+  const catLabel = STATUS_CATEGORY_LABELS[category];
+  const colorClass = category === "active"
+    ? "bg-primary/10 text-primary border-primary/20"
+    : category === "terminal"
+      ? "bg-muted text-muted-foreground border-muted"
+      : category === "recovery"
+        ? "bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 border-yellow-500/20"
+        : "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20";
+
+  return (
+    <Badge variant="outline" className={`gap-1 border ${colorClass}`}>
+      {catLabel.zh}
+    </Badge>
+  );
 }
 
 function resolvePriorityLabel(value: string) {

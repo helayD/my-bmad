@@ -4,7 +4,7 @@ import { ArrowLeft } from "lucide-react";
 import { TaskDetailView } from "@/components/tasks/task-detail-view";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { getProjectBySlug, getTaskById, resolveTaskConcurrencySnapshot, resolveTaskBoundarySnapshot } from "@/lib/db/helpers";
+import { getProjectBySlug, getTaskById, resolveTaskConcurrencySnapshot, resolveTaskBoundarySnapshot, getTaskStateHistory } from "@/lib/db/helpers";
 import { resolveTaskRoutingDecision as resolveDispatchRoutingDecision } from "@/lib/execution/routing";
 import {
   isTaskApprovalRequiredForDispatch,
@@ -96,6 +96,7 @@ export default async function TaskDetailPage({ params }: TaskDetailPageProps) {
   const dispatchPreviewReason = dispatchPreviewDecision?.selectionReasonSummary ?? null;
   const concurrencySnapshot = await resolveTaskConcurrencySnapshot(task.id, workspace.id, project.id);
   const boundarySnapshot = await resolveTaskBoundarySnapshot(task.id, workspace.id, project.id);
+  const stateEvents = await getTaskStateHistory(task.id);
   const queueSnapshot = concurrencySnapshot.queuePosition !== null
     ? {
         queuePosition: concurrencySnapshot.queuePosition,
@@ -174,6 +175,7 @@ export default async function TaskDetailPage({ params }: TaskDetailPageProps) {
         }}
         sourceHierarchy={sourceHierarchy}
         canManageExecution={canManageExecution}
+        stateEvents={stateEvents}
       />
     </div>
   );
