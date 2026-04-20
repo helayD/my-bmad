@@ -17,7 +17,7 @@
 # - Dev 将 Story 移到 review，然后运行 code-review（建议换 LLM 以获得新视角）
 
 generated: "2026-04-04T22:05:00+08:00"
-last_updated: "2026-04-20T00:00:00+08:00"
+last_updated: "2026-04-20T12:00:00+08:00"
 project: my-bmad
 project_key: NOKEY
 tracking_system: file-system
@@ -66,9 +66,9 @@ development_status:
   epic-4-回顾: optional
 
   # ── Epic 5: 执行控制塔：状态、日志、心跳与动态交互 ──
-  epic-5: backlog
-  5-1-任务状态机与细粒度状态流转: backlog
-  5-2-长时间运行任务的状态连续与上下文保持: backlog
+  epic-5: in-progress
+  5-1-任务状态机与细粒度状态流转: review
+  5-2-长时间运行任务的状态连续与上下文保持: ready-for-dev
   5-3-Agent输出监听与实时状态推送: backlog
   5-4-执行中补充指令与上下文输入: backlog
   5-5-人工回应Agent交互请求: backlog
