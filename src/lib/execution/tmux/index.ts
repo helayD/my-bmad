@@ -12,7 +12,9 @@ export {
   hasSession,
   resolvePanePid,
   isValidSessionName,
+  sendKeys,
   type TmuxCreateResult,
+  type TmuxSendKeysConfig,
 } from "./client";
 export {
   TMUX_ERROR_CODES,

@@ -14,6 +14,10 @@ import type {
   ConcurrencySnapshot,
   ExecutionQueueSnapshot,
 } from "@/lib/tasks/types";
+import { parseExecutionQueueSnapshot } from "./boundary";
+
+// Re-export so consumers can import from either location.
+export { parseExecutionQueueSnapshot };
 
 /** Minimum completed sessions needed before we trust the median estimate */
 const MEDIAN_SAMPLE_MIN = 3;
@@ -333,47 +337,6 @@ function resolveMaxConcurrentTasks(settings: unknown): number {
     return value;
   }
   return 5; // DEFAULT_WORKSPACE_GOVERNANCE_SETTINGS.maxConcurrentTasks
-}
-
-export function parseExecutionQueueSnapshot(
-  metadata: unknown,
-): ExecutionQueueSnapshot {
-  const record = toRecord(metadata);
-  const snap = toRecord(record?.executionQueue);
-  const queuePosition = typeof snap?.queuePosition === "number" ? snap.queuePosition : null;
-  const queuedAt = typeof snap?.queuedAt === "string" ? snap.queuedAt : null;
-  const workspaceActive = typeof snap?.workspaceActiveConcurrentTasks === "number" ? snap.workspaceActiveConcurrentTasks : 0;
-  const projectActive = typeof snap?.projectActiveConcurrentTasks === "number" ? snap.projectActiveConcurrentTasks : 0;
-  const maxConcurrent = typeof snap?.maxConcurrentTasks === "number" ? snap.maxConcurrentTasks : 5;
-  const estimatedSeconds = typeof snap?.estimatedWaitSeconds === "number" ? snap.estimatedWaitSeconds : null;
-  const estimatedLabel = typeof snap?.estimatedWaitLabel === "string" ? snap.estimatedWaitLabel : null;
-  const reasonCode = normalizeQueueReasonCode(snap?.queueReasonCode);
-  const reasonSummary = typeof snap?.queueReasonSummary === "string" ? snap.queueReasonSummary : "";
-
-  return {
-    queuePosition,
-    queuedAt,
-    workspaceActiveConcurrentTasks: workspaceActive,
-    projectActiveConcurrentTasks: projectActive,
-    maxConcurrentTasks: maxConcurrent,
-    estimatedWaitSeconds: estimatedSeconds,
-    estimatedWaitLabel: estimatedLabel,
-    queueReasonCode: reasonCode,
-    queueReasonSummary: reasonSummary,
-  };
-}
-
-function normalizeQueueReasonCode(value: unknown): ExecutionQueueSnapshot["queueReasonCode"] {
-  const validCodes: ExecutionQueueSnapshot["queueReasonCode"][] = [
-    "WORKSPACE_CAPACITY_FULL",
-    "PROJECT_ISOLATION",
-    "ADMISSION_IN_PROGRESS",
-    "ALREADY_QUEUED",
-  ];
-  if (typeof value === "string" && validCodes.includes(value as ExecutionQueueSnapshot["queueReasonCode"])) {
-    return value as ExecutionQueueSnapshot["queueReasonCode"];
-  }
-  return "WORKSPACE_CAPACITY_FULL";
 }
 
 function toRecord(value: unknown): Record<string, unknown> {

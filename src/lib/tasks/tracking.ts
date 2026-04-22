@@ -18,11 +18,11 @@ import {
   type WritebackOutcome,
   type WritebackStatus,
 } from "./types";
-import { parseExecutionQueueSnapshot } from "@/lib/execution/supervisor/queue";
-import { parseBoundaryProfile } from "@/lib/execution/supervisor/boundary";
 import {
   EXECUTION_BOUNDARY_VIOLATION_LABELS,
   EXECUTION_BOUNDARY_VIOLATION_SUMMARIES,
+  parseBoundaryProfile,
+  parseExecutionQueueSnapshot,
   type ExecutionBoundaryViolationCode,
 } from "@/lib/execution/supervisor/boundary";
 

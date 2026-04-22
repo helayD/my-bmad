@@ -255,6 +255,8 @@ model Task {
   writebacks       Writeback[]
   stateEvents     TaskStateEvent[]
   auditEvents      AuditEvent[]
+  heartbeats       Heartbeat[]
+  interactionRequests InteractionRequest[]
 
   @@index([workspaceId])
   @@index([projectId])
@@ -319,6 +321,7 @@ model AgentRun {
   executionSession        ExecutionSession?
   replacesRun             AgentRun? @relation("AgentRunReplacement", fields: [replacesRunId], references: [id], onDelete: SetNull)
   replacementRun          AgentRun? @relation("AgentRunReplacement")
+  interactionRequests     InteractionRequest[]
 
   @@index([workspaceId, createdAt])
   @@index([projectId, status, createdAt])
@@ -327,6 +330,30 @@ model AgentRun {
   @@index([taskId, agentType, createdAt])
   @@index([requestedByUserId])
   @@map("agent_runs")
+}
+
+model InteractionRequest {
+  id        String   @id @default(cuid())
+  taskId    String
+  agentRunId String
+  type      String   // "input_required" | "confirmation" | "strategy_choice"
+  title     String
+  content   String
+  context   Json?
+  confidence String  // "high" | "medium" | "low"
+  status    String   // "pending" | "responded" | "expired"
+  response  String?
+  respondedBy String?
+  respondedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  task     Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  agentRun AgentRun @relation(fields: [agentRunId], references: [id], onDelete: Cascade)
+
+  @@index([taskId, status])
+  @@index([agentRunId])
+  @@map("interaction_requests")
 }
 
 model PlanningRequest {
@@ -456,6 +483,7 @@ model ExecutionSession {
   project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
   task        Task      @relation("TaskExecutionSessions", fields: [taskId], references: [id], onDelete: Cascade)
   agentRun    AgentRun  @relation(fields: [agentRunId], references: [id], onDelete: Cascade)
+  heartbeats  Heartbeat[]
 
   @@index([projectId, status, createdAt])
   @@index([taskId, createdAt])
@@ -490,6 +518,28 @@ model AuditEvent {
   @@index([planningRequestId, occurredAt])
   @@index([projectId, eventName, occurredAt])
   @@map("audit_events")
+}
+
+model Heartbeat {
+  id                  String    @id @default(cuid())
+  executionSessionId  String
+  taskId              String
+  agentRunId          String
+  timestamp           DateTime  @default(now())
+  status              String
+  currentStage        String?
+  currentActivity     String?
+  lastOutputHash      String?
+  pid                 Int?
+  metadata            Json?
+  createdAt           DateTime  @default(now())
+
+  executionSession    ExecutionSession @relation(fields: [executionSessionId], references: [id], onDelete: Cascade)
+  task                Task             @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([executionSessionId, timestamp])
+  @@index([taskId, timestamp])
+  @@map("heartbeats")
 }
 
 model Repo {

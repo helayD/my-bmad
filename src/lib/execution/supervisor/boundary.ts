@@ -10,6 +10,7 @@
  */
 
 import type { Prisma } from "@/generated/prisma/client";
+import type { ExecutionQueueSnapshot } from "@/lib/tasks/types";
 
 // ── Violation codes ───────────────────────────────────────────────────────────────────
 
@@ -247,4 +248,58 @@ export function buildFailedBoundaryProfile(opts: {
     boundaryCurrentStage: "执行边界准备失败",
     boundaryNextStep: "请检查项目根目录配置后重试，或联系管理员排查。",
   };
+}
+
+// ── Execution Queue snapshot helpers ──────────────────────────────────────────────────
+
+/**
+ * Parse an ExecutionQueueSnapshot from task metadata.
+ * Pure function — safe for both server and client contexts.
+ */
+export function parseExecutionQueueSnapshot(
+  metadata: unknown,
+): ExecutionQueueSnapshot {
+  const record = toRecord(metadata);
+  const snap = toRecord(record?.executionQueue);
+  const queuePosition = typeof snap?.queuePosition === "number" ? snap.queuePosition : null;
+  const queuedAt = typeof snap?.queuedAt === "string" ? snap.queuedAt : null;
+  const workspaceActive = typeof snap?.workspaceActiveConcurrentTasks === "number" ? snap.workspaceActiveConcurrentTasks : 0;
+  const projectActive = typeof snap?.projectActiveConcurrentTasks === "number" ? snap.projectActiveConcurrentTasks : 0;
+  const maxConcurrent = typeof snap?.maxConcurrentTasks === "number" ? snap.maxConcurrentTasks : 5;
+  const estimatedSeconds = typeof snap?.estimatedWaitSeconds === "number" ? snap.estimatedWaitSeconds : null;
+  const estimatedLabel = typeof snap?.estimatedWaitLabel === "string" ? snap.estimatedWaitLabel : null;
+  const reasonCode = normalizeQueueReasonCode(snap?.queueReasonCode);
+  const reasonSummary = typeof snap?.queueReasonSummary === "string" ? snap.queueReasonSummary : "";
+
+  return {
+    queuePosition,
+    queuedAt,
+    workspaceActiveConcurrentTasks: workspaceActive,
+    projectActiveConcurrentTasks: projectActive,
+    maxConcurrentTasks: maxConcurrent,
+    estimatedWaitSeconds: estimatedSeconds,
+    estimatedWaitLabel: estimatedLabel,
+    queueReasonCode: reasonCode,
+    queueReasonSummary: reasonSummary,
+  };
+}
+
+function normalizeQueueReasonCode(value: unknown): ExecutionQueueSnapshot["queueReasonCode"] {
+  const validCodes: ExecutionQueueSnapshot["queueReasonCode"][] = [
+    "WORKSPACE_CAPACITY_FULL",
+    "PROJECT_ISOLATION",
+    "ADMISSION_IN_PROGRESS",
+    "ALREADY_QUEUED",
+  ];
+  if (typeof value === "string" && validCodes.includes(value as ExecutionQueueSnapshot["queueReasonCode"])) {
+    return value as ExecutionQueueSnapshot["queueReasonCode"];
+  }
+  return "WORKSPACE_CAPACITY_FULL";
+}
+
+function toRecord(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+  return value as Record<string, unknown>;
 }

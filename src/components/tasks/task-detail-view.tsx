@@ -4,22 +4,21 @@ import { AlertTriangle, ArrowLeft, ArrowUpRight, CheckCircle, CheckCheck, Circle
 import { TaskDispatchCard } from "@/components/tasks/task-dispatch-card";
 import { TaskRedispatchCard } from "@/components/tasks/task-redispatch-card";
 import { StateTimeline } from "@/components/tasks/state-timeline";
+import { AgentOutputPanel } from "@/components/tasks/agent-output-panel";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
-  EXECUTION_SESSION_STATUS_LABELS,
   EXECUTION_QUEUE_REASON_LABELS,
   TASK_INTENT_LABELS,
   TASK_PREFERRED_AGENT_TYPE_LABELS,
   TASK_PRIORITY_LABELS,
-  TASK_STATUS_LABELS,
   WRITEBACK_OUTCOME_LABELS,
   WRITEBACK_STATUS_LABELS,
   buildSourceArtifactHref,
   buildTaskSourcePathText,
   formatArtifactTypeLabel,
   resolveTaskCurrentActivity,
-  resolveTaskQueueLabel,
   type ArtifactTaskHistoryAgentRun,
   type ExecutionQueueSnapshot,
   type ExecutionSessionView,
@@ -27,7 +26,6 @@ import {
   type TaskIntent,
   type TaskPreferredAgentType,
   type TaskPriority,
-  type TaskStatus,
   type TaskWritebackView,
 } from "@/lib/tasks";
 import {
@@ -37,6 +35,9 @@ import {
   STATUS_SEMANTICS,
   type TaskStatus as TaskStatusSM,
 } from "@/lib/execution/state-machine";
+import {
+  type StateTrustLevel,
+} from "@/lib/execution/continuity";
 
 interface TaskDetailViewProps {
   task: {
@@ -52,6 +53,7 @@ interface TaskDetailViewProps {
     preferredAgentType?: string | null;
     status: string;
     currentStage: string;
+    currentActivity: string;
     nextStep: string;
     createdAt: Date;
     metadata: unknown;
@@ -72,6 +74,7 @@ interface TaskDetailViewProps {
     routingReason: string | null;
     latestWriteback: TaskWritebackView | null;
     currentSession: ExecutionSessionView | null;
+    currentAgentRunId?: string | null;
     /** Concurrency info passed from the server (populated when fetching task detail) */
     queueSnapshot?: ExecutionQueueSnapshot | null;
     workspaceActiveConcurrentTasks?: number;
@@ -90,6 +93,16 @@ interface TaskDetailViewProps {
       boundaryCurrentStage: string | null;
       boundaryNextStep: string | null;
     } | null;
+    /** Interaction requests for the task */
+    interactionRequests?: Array<{
+      id: string;
+      type: string;
+      title: string;
+      content: string;
+      context: unknown;
+      status: string;
+      createdAt: Date;
+    }>;
   };
   sourceHierarchy: TaskSourceHierarchyItem[];
   canManageExecution?: boolean;
@@ -103,6 +116,8 @@ interface TaskDetailViewProps {
     rejected: boolean;
     createdAt: Date;
   }>;
+  /** Heartbeat trust level for status display */
+  trustLevel?: StateTrustLevel | null;
 }
 
 export function TaskDetailView({
@@ -110,6 +125,7 @@ export function TaskDetailView({
   sourceHierarchy,
   canManageExecution = false,
   stateEvents = [],
+  trustLevel,
 }: TaskDetailViewProps) {
   const currentActivity = resolveTaskCurrentActivity({
     metadata: task.metadata,
@@ -129,9 +145,16 @@ export function TaskDetailView({
       <div className="flex flex-wrap items-center gap-3">
         <TaskStatusBadge status={task.status} />
         <TaskStatusCategoryBadge status={task.status} />
+        {trustLevel && (
+          <TaskConfidenceBadge trustLevel={trustLevel} />
+        )}
         <Badge variant="outline">优先级：{resolvePriorityLabel(task.priority)}</Badge>
         <Badge variant="outline">执行意图：{resolveIntentLabel(task.intent)}</Badge>
       </div>
+
+      {trustLevel?.displayRecommendation === "show_unknown" && (
+        <TrustWarningAlert trustLevel={trustLevel} currentStage={task.currentStage} />
+      )}
 
       <Card>
         <CardHeader>
@@ -259,6 +282,41 @@ export function TaskDetailView({
 
       <StateTimeline events={stateEvents} currentStatus={task.status} />
 
+      {task.currentAgentRunId ? (
+        <AgentOutputPanel
+          taskId={task.id}
+          agentRunId={task.currentAgentRunId}
+          taskStatus={task.status}
+        />
+      ) : null}
+
+      {task.interactionRequests && task.interactionRequests.length > 0 ? (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">待处理交互请求</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {task.interactionRequests.map((req) => (
+              <div
+                key={req.id}
+                className="rounded-lg border border-amber-200 bg-amber-50 p-4 dark:bg-amber-950/20 dark:border-amber-800"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-medium text-amber-700 dark:text-amber-400">{req.title}</span>
+                  <Badge variant="outline">{STATUS_LABELS[req.status as TaskStatusSM]?.zh ?? req.status}</Badge>
+                </div>
+                <div className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">
+                  {req.content}
+                </div>
+                <div className="mt-2 text-xs text-muted-foreground">
+                  创建于 {new Date(req.createdAt).toLocaleString("zh-CN", { hour12: false })}
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      ) : null}
+
       <Card>
         <CardHeader>
           <CardTitle>回写状态</CardTitle>
@@ -378,10 +436,6 @@ function StatusCard({ label, value, icon }: { label: string; value: string; icon
   );
 }
 
-function resolveStatusLabel(value: string) {
-  return TASK_STATUS_LABELS[(value as TaskStatus) ?? "pending"] ?? value;
-}
-
 const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
   FileText,
   Clock,
@@ -452,6 +506,68 @@ function resolveIntentLabel(value: string) {
 
 function resolvePreferredAgentLabel(value: string) {
   return TASK_PREFERRED_AGENT_TYPE_LABELS[(value as TaskPreferredAgentType) ?? "auto"] ?? value;
+}
+
+interface TaskConfidenceBadgeProps {
+  trustLevel: StateTrustLevel;
+}
+
+function TaskConfidenceBadge({ trustLevel }: TaskConfidenceBadgeProps) {
+  if (trustLevel.displayRecommendation === "show_normal") return null;
+
+  return (
+    <Badge variant={trustLevel.badgeVariant} className="text-xs">
+      {trustLevel.displayRecommendation === "show_stale" && (
+        <>
+          <Clock className="h-3 w-3 mr-1" />
+          {trustLevel.badgeText.zh}
+        </>
+      )}
+      {trustLevel.displayRecommendation === "show_unknown" && (
+        <>
+          <AlertTriangle className="h-3 w-3 mr-1" />
+          {trustLevel.badgeText.zh}
+        </>
+      )}
+    </Badge>
+  );
+}
+
+interface TrustWarningAlertProps {
+  trustLevel: StateTrustLevel;
+  currentStage: string;
+}
+
+function formatDistanceToNow(date: Date): string {
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffSeconds = Math.floor(diffMs / 1000);
+  if (diffSeconds < 60) return "刚刚";
+  const diffMinutes = Math.floor(diffSeconds / 60);
+  if (diffMinutes < 60) return `${diffMinutes}分钟前`;
+  const diffHours = Math.floor(diffMinutes / 60);
+  if (diffHours < 24) return `${diffHours}小时前`;
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffDays < 30) return `${diffDays}天前`;
+  return date.toLocaleString("zh-CN", { hour12: false });
+}
+
+function TrustWarningAlert({ trustLevel, currentStage }: TrustWarningAlertProps) {
+  return (
+    <Alert variant="destructive">
+      <AlertTriangle className="h-4 w-4" />
+      <AlertTitle>状态不可信</AlertTitle>
+      <AlertDescription>
+        已超过 2 分钟未收到心跳，任务状态可能已过期。
+        最后已知状态：{trustLevel.heartbeatStatus.lastStage ?? currentStage}
+        {trustLevel.heartbeatStatus.lastHeartbeatAt && (
+          <span className="block mt-1">
+            最后心跳：{formatDistanceToNow(trustLevel.heartbeatStatus.lastHeartbeatAt)}
+          </span>
+        )}
+      </AlertDescription>
+    </Alert>
+  );
 }
 
 function ConcurrencyQueueCard({

@@ -768,6 +768,142 @@ export async function getTaskStateHistory(
   return records;
 }
 
+/**
+ * 分页获取任务状态事件历史。
+ * 用于长时间运行任务的状态流转时间线展示（AC-3）。
+ *
+ * 策略（架构要求 — 原始长日志不进入高频事务热表）：
+ * - 使用游标分页（cursor-based），避免 OFFSET 性能退化
+ * - 默认每页 50 条，支持自定义
+ */
+export async function getTaskStateHistoryPaginated(
+  taskId: string,
+  options: {
+    limit?: number;
+    cursor?: string;
+    direction?: "forward" | "backward";
+    includeRejected?: boolean;
+  } = {}
+): Promise<{
+  events: TaskStateEventRecord[];
+  nextCursor: string | null;
+  hasMore: boolean;
+  total: number;
+}> {
+  const { limit = 50, cursor, direction = "forward", includeRejected = false } = options;
+
+  const where: Prisma.TaskStateEventWhereInput = { taskId };
+  if (!includeRejected) where.rejected = false;
+
+  const orderBy: Prisma.TaskStateEventOrderByWithRelationInput =
+    direction === "forward" ? { createdAt: "asc" } : { createdAt: "desc" };
+
+  const events = await prisma.taskStateEvent.findMany({
+    where,
+    orderBy,
+    take: direction === "forward" ? limit + 1 : limit,
+    ...(cursor
+      ? {
+          cursor: { id: cursor },
+          skip: 1,
+        }
+      : {}),
+  });
+
+  const hasMore = events.length > limit;
+  if (hasMore) events.pop();
+
+  const total = await prisma.taskStateEvent.count({ where });
+
+  return {
+    events: direction === "forward" ? events : events.reverse(),
+    nextCursor: hasMore && events.length > 0 ? events[events.length - 1].id : null,
+    hasMore,
+    total,
+  };
+}
+
+/**
+ * 获取任务执行轨迹摘要（用于长时间运行任务的状态流转展示）。
+ */
+export async function getTaskExecutionTrail(
+  taskId: string,
+  options: { limit?: number } = {}
+): Promise<{
+  trail: Array<{
+    id: string;
+    type: "state_change" | "heartbeat" | "interaction" | "recovery";
+    timestamp: Date;
+    summary: string;
+  }>;
+  totalCount: number;
+}> {
+  const { limit = 100 } = options;
+
+  // 并行查询：状态事件、心跳采样、心跳总数
+  const [stateEvents, recentHeartbeats, heartbeatTotal] = await Promise.all([
+    prisma.taskStateEvent.findMany({
+      where: { taskId, rejected: false },
+      orderBy: { createdAt: "desc" },
+      take: limit,
+      select: {
+        id: true,
+        toStatus: true,
+        trigger: true,
+        reason: true,
+        createdAt: true,
+      },
+    }),
+    // 心跳只取每分钟一条采样（避免大量心跳记录导致查询爆炸）
+    prisma.heartbeat.findMany({
+      where: { taskId },
+      orderBy: { timestamp: "desc" },
+      // 取最近 1 小时或 limit 条，取较大值
+      take: Math.max(limit, 60),
+    }),
+    prisma.heartbeat.count({ where: { taskId } }),
+  ]);
+
+  // 对心跳进行分钟级去重采样
+  const heartbeatSamples: Array<{ id: string; timestamp: Date; summary: string }> = [];
+  const seenMinutes = new Set<string>();
+  for (const hb of recentHeartbeats) {
+    const minuteKey = `${hb.timestamp.getFullYear()}-${String(hb.timestamp.getMonth() + 1).padStart(2, "0")}-${String(hb.timestamp.getDate()).padStart(2, "0")}-${String(hb.timestamp.getHours()).padStart(2, "0")}-${String(hb.timestamp.getMinutes()).padStart(2, "0")}`;
+    if (!seenMinutes.has(minuteKey)) {
+      seenMinutes.add(minuteKey);
+      heartbeatSamples.push({
+        id: hb.id,
+        timestamp: hb.timestamp,
+        summary: hb.currentActivity ?? hb.status,
+      });
+    }
+  }
+
+  // 合并状态事件和心跳采样，按时间排序
+  const stateTrail = stateEvents.map((e) => ({
+    id: e.id,
+    type: "state_change" as const,
+    timestamp: e.createdAt,
+    summary: `状态变更为 ${e.toStatus}${e.reason ? `（${e.reason}）` : ""}`,
+  }));
+
+  const heartbeatTrail = heartbeatSamples.map((hb) => ({
+    id: hb.id,
+    type: "heartbeat" as const,
+    timestamp: hb.timestamp,
+    summary: `心跳记录：${hb.summary}`,
+  }));
+
+  const merged = [...stateTrail, ...heartbeatTrail].sort(
+    (a, b) => a.timestamp.getTime() - b.timestamp.getTime()
+  );
+
+  return {
+    trail: merged.slice(-limit),
+    totalCount: stateEvents.length + heartbeatTotal,
+  };
+}
+
 export async function getTaskCurrentState(taskId: string): Promise<{
   status: string;
   currentStage: string;

@@ -5,7 +5,10 @@ import { TaskDetailView } from "@/components/tasks/task-detail-view";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { getProjectBySlug, getTaskById, resolveTaskConcurrencySnapshot, resolveTaskBoundarySnapshot, getTaskStateHistory } from "@/lib/db/helpers";
+import { prisma } from "@/lib/db/client";
+import { resolveTaskCurrentActivity } from "@/lib/tasks/tracking";
 import { resolveTaskRoutingDecision as resolveDispatchRoutingDecision } from "@/lib/execution/routing";
+import { computeStateTrust } from "@/lib/execution/continuity";
 import {
   isTaskApprovalRequiredForDispatch,
   TASK_AGENT_TYPE_LABELS,
@@ -97,6 +100,22 @@ export default async function TaskDetailPage({ params }: TaskDetailPageProps) {
   const concurrencySnapshot = await resolveTaskConcurrencySnapshot(task.id, workspace.id, project.id);
   const boundarySnapshot = await resolveTaskBoundarySnapshot(task.id, workspace.id, project.id);
   const stateEvents = await getTaskStateHistory(task.id);
+  const trustLevel = await computeStateTrust(task.id, task.status);
+  const currentActivity = resolveTaskCurrentActivity({
+    metadata: task.metadata,
+    currentStage: task.currentStage,
+    nextStep: task.nextStep,
+  });
+  const interactionRequests = task.status === "waiting_for_input" || task.status === "running"
+    ? await prisma.interactionRequest.findMany({
+        where: {
+          taskId: task.id,
+          status: "pending",
+        },
+        orderBy: { createdAt: "desc" },
+        take: 5,
+      })
+    : [];
   const queueSnapshot = concurrencySnapshot.queuePosition !== null
     ? {
         queuePosition: concurrencySnapshot.queuePosition,
@@ -152,6 +171,7 @@ export default async function TaskDetailPage({ params }: TaskDetailPageProps) {
           preferredAgentType: task.preferredAgentType,
           status: task.status,
           currentStage: task.currentStage,
+          currentActivity,
           nextStep: task.nextStep,
           createdAt: task.createdAt,
           metadata: task.metadata,
@@ -167,6 +187,16 @@ export default async function TaskDetailPage({ params }: TaskDetailPageProps) {
           routingReason: routingDecision?.selectionReasonSummary ?? null,
           latestWriteback,
           currentSession,
+          currentAgentRunId: task.currentAgentRunId,
+          interactionRequests: interactionRequests.map((r) => ({
+            id: r.id,
+            type: r.type,
+            title: r.title,
+            content: r.content,
+            context: r.context,
+            status: r.status,
+            createdAt: r.createdAt,
+          })),
           queueSnapshot,
           boundarySnapshot,
           workspaceActiveConcurrentTasks: concurrencySnapshot.workspaceActiveConcurrentTasks,
@@ -176,6 +206,7 @@ export default async function TaskDetailPage({ params }: TaskDetailPageProps) {
         sourceHierarchy={sourceHierarchy}
         canManageExecution={canManageExecution}
         stateEvents={stateEvents}
+        trustLevel={trustLevel}
       />
     </div>
   );

@@ -10,6 +10,7 @@ export const TMUX_ERROR_CODES = {
   TMUX_SESSION_NOT_FOUND: "TMUX_SESSION_NOT_FOUND",
   TMUX_PID_RESOLVE_FAILED: "TMUX_PID_RESOLVE_FAILED",
   TMUX_SESSION_CLEANUP_FAILED: "TMUX_SESSION_CLEANUP_FAILED",
+  TMUX_SEND_KEYS_FAILED: "TMUX_SEND_KEYS_FAILED",
 } as const;
 
 export type TmuxErrorCode = (typeof TMUX_ERROR_CODES)[keyof typeof TMUX_ERROR_CODES];
@@ -47,6 +48,8 @@ export function mapTmuxError(
       `无法解析 tmux 会话中的进程 PID${detail}。`,
     [TMUX_ERROR_CODES.TMUX_SESSION_CLEANUP_FAILED]:
       `清理 tmux 会话失败${detail}。`,
+    [TMUX_ERROR_CODES.TMUX_SEND_KEYS_FAILED]:
+      `向 tmux 会话发送按键失败${detail}。`,
   };
 
   return new TmuxAdapterError(code, messages[code]);
