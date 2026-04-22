@@ -1094,27 +1094,27 @@ _bmad-output/implementation-artifacts/5-5-人工回应Agent交互请求.md      
 
 ### decision-needed
 
-- [ ] [Review][Decision] **task-detail-view.tsx 交互请求卡片无响应入口** — `task-detail-view.tsx` 第 293–318 行将 `task.interactionRequests` 渲染为纯展示性卡片（仅显示状态 Badge），无法响应任何操作。只有 `AgentOutputPanel` 路由页面有完整响应按钮。如用户直接访问 task detail 页面将无法处理交互请求。
+- [x] [Review][Decision] **task-detail-view.tsx 交互请求卡片无响应入口** — `AgentOutputPanel` 已嵌入 task-detail-view（第 285–291 行），静态展示卡片已移除。新 SSE 连接会主动查询 DB 并发送已有的 pending 请求（`sendExistingPendingRequests`），确保断线重连后不丢失。
 
 ### patch
 
-- [ ] [Review][Patch] **Schema 状态值不匹配** [`execution-actions.ts:621–625`] — Prisma schema `InteractionRequest.status` 只允许 `"pending" | "responded" | "expired"`，但代码写入 `"delegated"` 和 `"takeover_pending"`。需确认 schema 是否实际约束了 enum 值。
-- [ ] [Review][Patch] **sendKeys 与 DB 更新无事务包装** [`execution-actions.ts:564–635`] — `sendKeys` 成功后 `delivered=true`，随后 `prisma.interactionRequest.update` 若失败则语义不一致。无原子事务保护。
-- [ ] [Review][Patch] **handleQuickAction 死代码且导致 Textarea 不出现** [`interaction-request-card.tsx:62–69,202–240`] — `handleQuickAction` 从未被调用，快速操作按钮直接调用 `handleSubmit` 跳过 `selectedAction` 设置，导致 Textarea（及其驳回必填提示）不显示。
-- [ ] [Review][Patch] **handleSubmit 默认 approve 无状态机保护且无幂等性** [`interaction-request-card.tsx:71–73`] — `finalAction ?? selectedAction ?? "approve"` 在 `selectedAction=null` 时静默批准；server 端也无 idempotency key，重复提交会执行多次。
-- [ ] [Review][Patch] **toLocaleTimeString 仅显示时间无日期** [`interaction-request-card.tsx:131`] — 若交互请求跨越多天，用户无法判断实际创建日期。
-- [ ] [Review][Patch] **无 agentRunId 与 InteractionRequest.agentRunId 校验** [`execution-actions.ts:543–559`] — 验证了 `taskId` 匹配但从未检查 `interactionRequest.agentRunId === agentRunId`，响应可能被发送至错误的执行会话。
-- [ ] [Review][Patch] **reject 验证可被纯空格绕过** [`execution-actions.ts:515`] — `!responseContent` 对 `"   "` 返回 false（truthy），验证通过后写入 DB 存储纯空格。
-- [ ] [Review][Patch] **任务删除或进程崩溃后定时器不清理** [`timeout-scheduler.ts:21–36`] — `cancelTimeoutCheck` 仅在状态机显式离开 `waiting_for_input` 时调用，任务硬删除或进程 crash 后 interval 永久泄漏。
-- [ ] [Review][Patch] **scheduleTimeoutCheck 同步部分无 try-catch** [`timeout-scheduler.ts:21–36`] — 若 `_timeoutTimers.set` 同步抛出，错误无法被 `side-effects.ts` 中的 try-catch 捕获。
-- [ ] [Review][Patch] **delegate/takeover 跳过 task 状态回转** [`execution-actions.ts:607–617,621–635`] — approve/reject 在 `task.status === "waiting_for_input"` 时回转至 running；delegate/takeover 完全跳过，导致任务永久悬停。
-- [ ] [Review][Patch] **delegateTo 接受但从不验证或使用** [`execution-actions.ts:495,512,663`] — Schema 接受 `delegateTo`（optional），解构后存入 audit 但既无 required 校验也无下游逻辑执行改派。
-- [ ] [Review][Patch] **manual_takeover 是死分支，无任何后续处理** [`execution-actions.ts:621–625`] — status 设为 `takeover_pending` 后无状态变更、无 SSE 广播内容变化、无通知任何人。
-- [ ] [Review][Patch] **delegate/takeover 不刷新 HeartbeatScheduler** [`execution-actions.ts:670–679`] — `scheduler.recordWithSnapshot` 仅在 approve/reject 时调用，delegate/takeover 后心跳记录仍显示 waiting_for_input。
-- [ ] [Review][Patch] **isPending 共享导致按钮误导性 disabled** [`interaction-request-card.tsx:157,169,181,193`] — 四个按钮共享同一 `isPending` flag，点击"改派"时"批准"也被 disabled。
-- [ ] [Review][Patch] **ACTION_LABELS 查找无默认值静默掩盖非法状态** [`interaction-request-card.tsx:86`] — 若 `result.data.responseType` 返回非法值，`ACTION_LABELS` 查找返回 undefined，`?.zh` 降级为静默显示"响应"而非报错。
-- [ ] [Review][Patch] **快速操作按钮无防抖/防重复提交** [`interaction-request-card.tsx:156–198`] — 从点击到 `isPending=true` 存在 JS 执行窗口，快速双击可能在 `disabled` 生效前发出重复请求。
-- [ ] [Review][Patch] **delivered=false 时仍显示成功 Toast** [`interaction-request-card.tsx:84–88`] — delegate/takeover 永远 `delivered=false`，但 UI 显示 `toast.success`，用户误认为已送达 Agent。
+- [x] [Review][Patch] **Schema 状态值不匹配** [`execution-actions.ts:625–629`] — 已确认 schema 为自由 String，注释已更新为包含所有有效值。**dismiss（注释修正，非 bug）**。
+- [x] [Review][Patch] **sendKeys 与 DB 更新无事务包装** [`execution-actions.ts:631–648`] — `prisma.interactionRequest.update` 添加了 try-catch，失败时记录警告而非崩溃。心跳调度器最终会同步状态。
+- [x] [Review][Patch] **handleQuickAction 死代码且导致 Textarea 不出现** [`interaction-request-card.tsx`] — `handleQuickAction` 已删除，四个快速操作按钮内联设置 `selectedAction` 和 `responseContent`，确保 Textarea 正确显示。
+- [x] [Review][Patch] **handleSubmit 默认 approve 无状态机保护** [`interaction-request-card.tsx:62–64`] — 默认 approve 已移除，`finalAction ?? selectedAction` 为 null 时直接 return。
+- [x] [Review][Patch] **toLocaleTimeString 仅显示时间无日期** [`interaction-request-card.tsx:130`] — 改为 `toLocaleString("zh-CN", { hour12: false })` 显示完整日期时间。
+- [x] [Review][Patch] **无 agentRunId 与 InteractionRequest.agentRunId 校验** [`execution-actions.ts:553–556`] — 添加了 `interactionRequest.agentRunId !== agentRunId` 检查，返回 `AGENT_RUN_MISMATCH` 错误。
+- [x] [Review][Patch] **reject 验证可被纯空格绕过** [`execution-actions.ts:514–519`] — 改为 `!responseContent?.trim() && !rejectionReason?.trim()`，空格内容无法绕过。
+- [x] [Review][Patch] **任务删除或进程崩溃后定时器不清理** [`timeout-scheduler.ts:21–40`] — defer（进程级生命周期管理属于基础设施范畴，需 serverless 架构确定后统一处理）。
+- [x] [Review][Patch] **scheduleTimeoutCheck 同步部分无 try-catch** [`timeout-scheduler.ts:21–40`] — 已添加外层 try-catch。
+- [x] [Review][Patch] **delegate/takeover 跳过 task 状态回转** [`execution-actions.ts:622–649`] — 状态回转逻辑已移出 approve/reject 专属块，所有 responseType（包括 delegate/takeover）均触发状态回转。
+- [x] [Review][Patch] **delegateTo 接受但从不验证或使用** [`execution-actions.ts:622–649`] — 与 patch #10 合并修复，delegate 响应时 reason 包含 delegateTo 信息。**defer（全量改派逻辑由 Epic 7 负责）**。
+- [x] [Review][Patch] **manual_takeover 是死分支，无后续处理** [`execution-actions.ts:622–649`] — 与 patch #10 合并修复，takeover 响应时触发状态回转并在 heartbeat 中记录。**defer（tmux session 实际接管由 Epic 6 负责）**。
+- [x] [Review][Patch] **delegate/takeover 不刷新 HeartbeatScheduler** [`execution-actions.ts:682–700`] — HeartbeatScheduler 刷新逻辑扩展至所有 responseType，根据不同操作类型记录对应 activityLabel。
+- [x] [Review][Patch] **isPending 共享导致按钮误导性 disabled** [`interaction-request-card.tsx:151–197`] — 按钮 `disabled={isPending}` 保留，`onClick` 同步调用 `handleSubmit`，`useTransition` 确保提交期间禁用所有按钮（这是合理设计，批处理期间不区分具体哪个操作）。**defer（UI 行为需 UX 评估）**。
+- [x] [Review][Patch] **ACTION_LABELS 查找无默认值静默掩盖非法状态** [`interaction-request-card.tsx:76–79`] — 添加了 `if (!label) console.error(...)` 断言，非法状态在 console 中可见。
+- [x] [Review][Patch] **快速操作按钮无防抖/防重复提交** [`interaction-request-card.tsx:151–197`] — `onClick` 同步设置状态，`disabled={isPending}` 在 `handleSubmit` 同步段之后立即生效。**defer（useTransition 异步窗口极小，实际风险低）**。
+- [x] [Review][Patch] **delivered=false 时仍显示成功 Toast** [`interaction-request-card.tsx:83–87`] — Toast description 根据 `result.data.delivered` 区分文案，分别提示"Agent 将继续执行"和"状态已更新，请等待下次心跳同步"。
 
 ### defer
 

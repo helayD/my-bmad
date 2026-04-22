@@ -512,7 +512,7 @@ export async function respondToInteractionRequest(
   const { interactionRequestId, taskId, agentRunId, responseType, responseContent, rejectionReason, delegateTo } = parsed.data;
 
   // 驳回时必须提供拒绝原因
-  if (responseType === "reject" && !responseContent && !rejectionReason) {
+  if (responseType === "reject" && !responseContent?.trim() && !rejectionReason?.trim()) {
     return {
       success: false,
       error: "驳回时必须提供拒绝原因",
@@ -552,6 +552,10 @@ export async function respondToInteractionRequest(
 
   if (interactionRequest.taskId !== taskId) {
     return { success: false, error: "交互请求与任务不匹配", code: "INTERACTION_REQUEST_MISMATCH" };
+  }
+
+  if (interactionRequest.agentRunId !== agentRunId) {
+    return { success: false, error: "交互请求与 Agent Run 不匹配", code: "AGENT_RUN_MISMATCH" };
   }
 
   if (interactionRequest.status !== "pending") {
@@ -603,18 +607,35 @@ export async function respondToInteractionRequest(
         code: "TMUX_SEND_FAILED",
       };
     }
+  }
 
-    // 3d. 如果任务处于 WAITING_FOR_INPUT，触发状态回转
-    if (task.status === "waiting_for_input") {
-      await transitionTask({
-        taskId,
-        toStatus: "running",
-        trigger: "user_response",
-        actorType: "user",
-        actorId: session.userId,
-        reason: `用户${responseType === "approve" ? "批准" : "驳回"}了 Agent 请求`,
-      });
+  // 3d. 如果任务处于 WAITING_FOR_INPUT，触发状态回转（所有 responseType 均适用）
+  if (task.status === "waiting_for_input") {
+    let reason: string;
+    switch (responseType) {
+      case "approve":
+        reason = "用户批准了 Agent 请求";
+        break;
+      case "reject":
+        reason = "用户驳回了 Agent 请求";
+        break;
+      case "delegate":
+        reason = `用户将请求改派${delegateTo ? `给 ${delegateTo}` : ""}`;
+        break;
+      case "manual_takeover":
+        reason = "用户请求人工接管";
+        break;
+      default:
+        reason = "用户响应了交互请求";
     }
+    await transitionTask({
+      taskId,
+      toStatus: "running",
+      trigger: "user_response",
+      actorType: "user",
+      actorId: session.userId,
+      reason,
+    });
   }
 
   // 4. 更新 InteractionRequest 记录
@@ -624,15 +645,21 @@ export async function respondToInteractionRequest(
       ? "takeover_pending"
       : "responded";
 
-  await prisma.interactionRequest.update({
-    where: { id: interactionRequestId },
-    data: {
-      status: newStatus,
-      response: responseContent ?? (responseType === "reject" ? rejectionReason : null),
-      respondedAt: new Date(),
-      respondedBy: session.userId,
-    },
-  });
+  try {
+    await prisma.interactionRequest.update({
+      where: { id: interactionRequestId },
+      data: {
+        status: newStatus,
+        response: responseContent ?? (responseType === "reject" ? rejectionReason : null),
+        respondedAt: new Date(),
+        respondedBy: session.userId,
+      },
+    });
+  } catch (error) {
+    console.error("[respondToInteractionRequest] DB update failed:", error);
+    // sendKeys 已成功，Agent 收到了响应。DB 更新失败会导致 InteractionRequest
+    // 暂时保持 pending，直到下次心跳/轮询快照刷新。心跳调度器会最终同步状态。
+  }
 
   // 5. 触发 SSE 广播（通知所有连接的客户端）
   sseBroadcaster.broadcast(taskId, {
@@ -667,13 +694,21 @@ export async function respondToInteractionRequest(
   });
 
   // 7. 刷新 HeartbeatScheduler 记录
-  if (task.status === "waiting_for_input" && (responseType === "approve" || responseType === "reject")) {
+  if (task.status === "waiting_for_input") {
     const scheduler = getScheduler(taskId);
     if (scheduler) {
+      const activityLabel =
+        responseType === "approve"
+          ? "用户批准了交互请求"
+          : responseType === "reject"
+            ? "用户驳回了交互请求"
+            : responseType === "delegate"
+              ? "交互请求已改派"
+              : "人工接管请求已提交";
       scheduler.recordWithSnapshot({
-        status: "running",
-        currentStage: "运行中",
-        currentActivity: `用户${responseType === "approve" ? "批准" : "驳回"}了交互请求`,
+        status: responseType === "approve" || responseType === "reject" ? "running" : task.status,
+        currentStage: task.currentStage,
+        currentActivity: activityLabel,
       });
     }
   }

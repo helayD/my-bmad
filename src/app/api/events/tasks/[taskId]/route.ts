@@ -34,9 +34,17 @@ export async function GET(
         }
       });
 
-      // 处理 Last-Event-ID（断线重连）
+      // 新连接时（无 Last-Event-ID）：发送 catch-up 后，补充发送已有 pending 请求
       const lastEventId = request.headers.get("Last-Event-ID");
-      if (lastEventId) {
+      if (!lastEventId) {
+        void sendExistingPendingRequests(taskId, (ev) => {
+          try {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify(ev)}\n\n`));
+          } catch {
+            // ignore
+          }
+        });
+      } else {
         sseBroadcaster.sendCatchup(taskId, lastEventId, (data) => {
           controller.enqueue(
             encoder.encode(`data: ${JSON.stringify(data)}\n\n`)
@@ -69,4 +77,33 @@ export async function GET(
       "X-Accel-Buffering": "no", // 禁用 Nginx 缓冲
     },
   });
+}
+
+async function sendExistingPendingRequests(
+  taskId: string,
+  send: (data: unknown) => void,
+): Promise<void> {
+  try {
+    const { prisma } = await import("@/lib/db/client");
+    const pending = await prisma.interactionRequest.findMany({
+      where: { taskId, status: "pending" },
+      select: { id: true, title: true, content: true, context: true, createdAt: true },
+    });
+    for (const req of pending) {
+      send({
+        id: `init-${req.id}`,
+        type: "interaction_request",
+        data: {
+          requestId: req.id,
+          taskId,
+          title: req.title,
+          content: req.content,
+          context: typeof req.context === "string" ? req.context : req.context?.detail ?? undefined,
+          timestamp: new Date(req.createdAt).toISOString(),
+        },
+      });
+    }
+  } catch {
+    // 忽略：交互请求加载失败不影响 SSE 连接建立
+  }
 }

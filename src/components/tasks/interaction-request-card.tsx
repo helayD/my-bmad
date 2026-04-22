@@ -59,17 +59,8 @@ export function InteractionRequestCard({
   const confidenceInfo = CONFIDENCE_LABELS[confidence];
   const showExpiredWarning = isExpired;
 
-  function handleQuickAction(action: "approve" | "reject") {
-    setSelectedAction(action);
-    setResponseContent(
-      action === "approve"
-        ? (suggestedActions?.find((a) => a.value === "y")?.value ?? "y")
-        : (suggestedActions?.find((a) => a.value === "n")?.value ?? "n"),
-    );
-  }
-
   function handleSubmit(finalAction?: "approve" | "reject" | "delegate" | "manual_takeover") {
-    const action = finalAction ?? selectedAction ?? "approve";
+    const action = finalAction ?? selectedAction;
     if (!action) return;
 
     startTransition(async () => {
@@ -82,9 +73,17 @@ export function InteractionRequestCard({
       });
 
       if (result.success) {
+        const label = ACTION_LABELS[result.data.responseType as keyof typeof ACTION_LABELS];
+        if (!label) {
+          console.error("[InteractionRequestCard] Unknown responseType from server:", result.data.responseType);
+        }
         toast.success(
-          `已${ACTION_LABELS[result.data.responseType as keyof typeof ACTION_LABELS]?.zh ?? "响应"}交互请求`,
-          { description: "Agent 将继续执行" },
+          `已${label?.zh ?? "响应"}交互请求`,
+          {
+            description: result.data.delivered
+              ? "Agent 将继续执行"
+              : "状态已更新，请等待下次心跳同步",
+          },
         );
         onResponse?.();
       } else {
@@ -128,7 +127,7 @@ export function InteractionRequestCard({
             )}
           </div>
           <span className="text-xs text-muted-foreground whitespace-nowrap">
-            {createdAt.toLocaleTimeString("zh-CN")}
+            {createdAt.toLocaleString("zh-CN", { hour12: false })}
           </span>
         </div>
       </CardHeader>
@@ -153,9 +152,12 @@ export function InteractionRequestCard({
             size="sm"
             variant="default"
             className="gap-1.5 bg-green-600 hover:bg-green-700"
-            onClick={() => handleSubmit("approve")}
+            onClick={() => {
+              setSelectedAction("approve");
+              setResponseContent(suggestedActions?.find((a) => a.value === "y")?.value ?? "y");
+              void handleSubmit("approve");
+            }}
             disabled={isPending}
-            tabIndex={0}
           >
             <CheckCircle className="w-4 h-4" />
             批准
@@ -165,9 +167,11 @@ export function InteractionRequestCard({
             size="sm"
             variant="outline"
             className="gap-1.5 text-red-600 border-red-200 hover:bg-red-50 dark:hover:bg-red-950/20"
-            onClick={() => handleSubmit("reject")}
+            onClick={() => {
+              setSelectedAction("reject");
+              void handleSubmit("reject");
+            }}
             disabled={isPending}
-            tabIndex={0}
           >
             <XCircle className="w-4 h-4" />
             驳回
@@ -177,9 +181,11 @@ export function InteractionRequestCard({
             size="sm"
             variant="ghost"
             className="gap-1.5"
-            onClick={() => handleSubmit("delegate")}
+            onClick={() => {
+              setSelectedAction("delegate");
+              void handleSubmit("delegate");
+            }}
             disabled={isPending}
-            tabIndex={0}
           >
             <Users className="w-4 h-4" />
             改派
@@ -189,9 +195,11 @@ export function InteractionRequestCard({
             size="sm"
             variant="ghost"
             className="gap-1.5"
-            onClick={() => handleSubmit("manual_takeover")}
+            onClick={() => {
+              setSelectedAction("manual_takeover");
+              void handleSubmit("manual_takeover");
+            }}
             disabled={isPending}
-            tabIndex={0}
           >
             <AlertTriangle className="w-4 h-4" />
             人工接管

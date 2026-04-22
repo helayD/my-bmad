@@ -19,20 +19,24 @@ const CHECK_INTERVAL_MS = 5 * 60 * 1000; // 5 分钟
  * 如果任务已存在调度，则不重复注册。
  */
 export function scheduleTimeoutCheck(taskId: string): void {
-  if (_timeoutTimers.has(taskId)) return;
+  try {
+    if (_timeoutTimers.has(taskId)) return;
 
-  const timer = setInterval(async () => {
-    try {
-      const expiredCount = await checkAllPendingInteractions({ timeoutMs: 5 * 60 * 1000 });
-      if (expiredCount > 0) {
-        console.log(`[timeout-scheduler] Task ${taskId}: ${expiredCount} interaction request(s) expired.`);
+    const timer = setInterval(async () => {
+      try {
+        const expiredCount = await checkAllPendingInteractions({ timeoutMs: 5 * 60 * 1000 });
+        if (expiredCount > 0) {
+          console.log(`[timeout-scheduler] Task ${taskId}: ${expiredCount} interaction request(s) expired.`);
+        }
+      } catch (err) {
+        console.error(`[timeout-scheduler] Task ${taskId}: timeout check failed:`, err);
       }
-    } catch (err) {
-      console.error(`[timeout-scheduler] Task ${taskId}: timeout check failed:`, err);
-    }
-  }, CHECK_INTERVAL_MS);
+    }, CHECK_INTERVAL_MS);
 
-  _timeoutTimers.set(taskId, timer);
+    _timeoutTimers.set(taskId, timer);
+  } catch (err) {
+    console.error("[timeout-scheduler] Failed to schedule timeout check:", err);
+  }
 }
 
 /**

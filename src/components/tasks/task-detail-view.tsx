@@ -290,31 +290,12 @@ export function TaskDetailView({
         />
       ) : null}
 
-      {task.interactionRequests && task.interactionRequests.length > 0 ? (
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">待处理交互请求</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {task.interactionRequests.map((req) => (
-              <div
-                key={req.id}
-                className="rounded-lg border border-amber-200 bg-amber-50 p-4 dark:bg-amber-950/20 dark:border-amber-800"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="font-medium text-amber-700 dark:text-amber-400">{req.title}</span>
-                  <Badge variant="outline">{STATUS_LABELS[req.status as TaskStatusSM]?.zh ?? req.status}</Badge>
-                </div>
-                <div className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">
-                  {req.content}
-                </div>
-                <div className="mt-2 text-xs text-muted-foreground">
-                  创建于 {new Date(req.createdAt).toLocaleString("zh-CN", { hour12: false })}
-                </div>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
+      {task.interactionRequests && task.interactionRequests.length > 0 && task.currentAgentRunId ? (
+        <AgentOutputPanel
+          taskId={task.id}
+          agentRunId={task.currentAgentRunId}
+          taskStatus={task.status}
+        />
       ) : null}
 
       <Card>
