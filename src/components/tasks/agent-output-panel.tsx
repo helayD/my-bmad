@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Send } from "lucide-react";
 import { toast } from "sonner";
 import { submitSupplementaryInput } from "@/actions/execution-actions";
+import { InteractionRequestCard } from "./interaction-request-card";
 import type { TaskStatus } from "@/lib/execution/state-machine";
 
 interface ParsedEvent {
@@ -33,6 +34,7 @@ interface InteractionRequestEvent {
   content: string;
   context?: string;
   timestamp: string;
+  isExpired?: boolean;
 }
 
 interface AgentOutputPanelProps {
@@ -135,6 +137,27 @@ export function AgentOutputPanel({ taskId, agentRunId, taskStatus }: AgentOutput
             },
           ].slice(-200));
         }
+
+        if (data.type === "interaction_timeout") {
+          const timeoutEvent = data as { type: "interaction_timeout"; requestId: string; timestamp: string };
+          setInteractionRequests((prev) =>
+            prev.map((req) =>
+              req.requestId === timeoutEvent.requestId
+                ? { ...req, isExpired: true }
+                : req,
+            ),
+          );
+          toast.warning("交互请求已超时", {
+            description: "请求未被处理，系统已自动将任务状态恢复为运行中",
+          });
+        }
+
+        if (data.type === "interaction_response") {
+          const respEvent = data as { type: "interaction_response"; requestId: string };
+          setInteractionRequests((prev) =>
+            prev.filter((req) => req.requestId !== respEvent.requestId),
+          );
+        }
       } catch {
         // ignore parse errors
       }
@@ -196,18 +219,30 @@ export function AgentOutputPanel({ taskId, agentRunId, taskStatus }: AgentOutput
       </CardHeader>
       <CardContent>
         {interactionRequests.length > 0 && (
-          <div className="mb-4 space-y-2">
+          <div className="mb-4 space-y-3">
             <div className="text-xs font-medium text-amber-600">待处理交互请求</div>
             {interactionRequests.map((req) => (
-              <div
+              <InteractionRequestCard
                 key={req.requestId}
-                className="rounded border border-amber-200 bg-amber-50 p-3 text-sm dark:bg-amber-950/20 dark:border-amber-800"
-              >
-                <div className="font-medium text-amber-700 dark:text-amber-400">{req.title}</div>
-                <div className="mt-1 whitespace-pre-wrap text-xs text-muted-foreground">
-                  {req.content}
-                </div>
-              </div>
+                requestId={req.requestId}
+                taskId={taskId}
+                agentRunId={agentRunId}
+                title={req.title ?? "Agent 请求输入"}
+                content={req.content}
+                context={req.context}
+                confidence={undefined}
+                createdAt={new Date(req.timestamp)}
+                suggestedActions={[
+                  { label: "批准 (y)", value: "y" },
+                  { label: "驳回 (n)", value: "n" },
+                ]}
+                isExpired={req.isExpired}
+                onResponse={() => {
+                  setInteractionRequests((prev) =>
+                    prev.filter((r) => r.requestId !== req.requestId),
+                  );
+                }}
+              />
             ))}
           </div>
         )}
@@ -215,6 +250,11 @@ export function AgentOutputPanel({ taskId, agentRunId, taskStatus }: AgentOutput
         {/* 补充指令输入区域 — 仅当任务处于运行状态时显示 */}
         {(taskStatus === "running" || taskStatus === "waiting_for_input") && (
           <div className="space-y-2 pt-3 border-t">
+            {interactionRequests.length > 0 && (
+              <p className="text-xs text-amber-600 dark:text-amber-400">
+                提示：上方有待处理的交互请求，建议先批准或驳回后再发送补充指令。
+              </p>
+            )}
             <div className="flex items-center justify-between">
               <span className="text-xs font-medium text-muted-foreground">
                 发送补充指令

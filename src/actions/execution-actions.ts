@@ -300,6 +300,7 @@ import { prisma } from "@/lib/db/client";
 import { transitionTask } from "@/lib/execution/state-machine";
 import { sendKeys } from "@/lib/execution/tmux";
 import { getScheduler } from "@/lib/execution/heartbeat";
+import { sseBroadcaster } from "@/lib/execution/monitor/sse-broadcaster";
 
 const SubmitSupplementaryInputSchema = z.object({
   taskId: z.string().min(1, "任务 ID 不能为空"),
@@ -476,4 +477,206 @@ export async function submitSupplementaryInput(
   });
 
   return { success: true, data: { success: true, delivered } };
+}
+
+// ── Interaction Request Response ─────────────────────────────────────────────────
+
+const RespondToInteractionRequestSchema = z.object({
+  interactionRequestId: z.string().min(1, "交互请求 ID 不能为空"),
+  taskId: z.string().min(1, "任务 ID 不能为空"),
+  agentRunId: z.string().min(1, "Agent Run ID 不能为空"),
+  /** 响应类型：approve（批准）、reject（驳回）、delegate（改派）、manual_takeover（人工接管） */
+  responseType: z.enum(["approve", "reject", "delegate", "manual_takeover"]),
+  /** 可选：用户提供的响应内容（用于 approve/reject 时的补充说明） */
+  responseContent: z.string().max(10_000, "响应内容不能超过 10,000 字符").optional(),
+  /** 驳回时的拒绝原因（必填，当 responseType=reject 时） */
+  rejectionReason: z.string().max(500).optional(),
+  /** 改派时指定的新处理人（必填，当 responseType=delegate 时） */
+  delegateTo: z.string().optional(),
+});
+
+export type RespondToInteractionRequestInput = z.infer<typeof RespondToInteractionRequestSchema>;
+
+export async function respondToInteractionRequest(
+  raw: RespondToInteractionRequestInput,
+): Promise<ActionResult<{ responseType: string; delivered: boolean }>> {
+  const parsed = RespondToInteractionRequestSchema.safeParse(raw);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: sanitizeError(new Error(parsed.error.message), "VALIDATION_ERROR"),
+      code: "VALIDATION_ERROR",
+    };
+  }
+
+  const { interactionRequestId, taskId, agentRunId, responseType, responseContent, rejectionReason, delegateTo } = parsed.data;
+
+  // 驳回时必须提供拒绝原因
+  if (responseType === "reject" && !responseContent && !rejectionReason) {
+    return {
+      success: false,
+      error: "驳回时必须提供拒绝原因",
+      code: "REJECTION_REASON_REQUIRED",
+    };
+  }
+
+  // 1. 认证与权限校验
+  const session = await getAuthenticatedSession();
+  if (!session) {
+    return { success: false, error: sanitizeError(null, "UNAUTHORIZED"), code: "UNAUTHORIZED" };
+  }
+
+  const task = await prisma.task.findUnique({
+    where: { id: taskId },
+    select: { id: true, status: true, workspaceId: true, projectId: true, currentAgentRunId: true },
+  });
+
+  if (!task) {
+    return { success: false, error: "任务不存在", code: "TASK_NOT_FOUND" };
+  }
+
+  const accessResult = await requireProjectAccess(task.workspaceId, task.projectId, session.userId, "execute");
+  if (!accessResult.success) {
+    return accessResult;
+  }
+
+  // 2. 验证 InteractionRequest 存在且状态为 pending
+  const interactionRequest = await prisma.interactionRequest.findUnique({
+    where: { id: interactionRequestId },
+    select: { id: true, status: true, taskId: true, agentRunId: true, title: true, content: true },
+  });
+
+  if (!interactionRequest) {
+    return { success: false, error: "交互请求不存在", code: "INTERACTION_REQUEST_NOT_FOUND" };
+  }
+
+  if (interactionRequest.taskId !== taskId) {
+    return { success: false, error: "交互请求与任务不匹配", code: "INTERACTION_REQUEST_MISMATCH" };
+  }
+
+  if (interactionRequest.status !== "pending") {
+    return { success: false, error: `交互请求状态为「${interactionRequest.status}」，无法响应`, code: "INVALID_INTERACTION_STATUS" };
+  }
+
+  // 3. 根据 responseType 执行不同操作
+  let delivered = false;
+
+  if (responseType === "approve" || responseType === "reject") {
+    // 3a. 获取 ExecutionSession
+    const executionSession = await prisma.executionSession.findUnique({
+      where: { agentRunId },
+      select: { id: true, sessionName: true, status: true },
+    });
+
+    if (!executionSession) {
+      return { success: false, error: "找不到执行会话记录", code: "SESSION_NOT_FOUND" };
+    }
+
+    if (executionSession.status !== "running") {
+      return { success: false, error: "执行会话已结束，无法响应", code: "SESSION_ENDED" };
+    }
+
+    // 3b. 确定发送到 tmux 的内容
+    let tmuxContent: string;
+    if (responseType === "approve") {
+      tmuxContent = responseContent ?? interactionRequest.content;
+    } else {
+      tmuxContent = rejectionReason ?? "n";
+    }
+
+    // 3c. 通过 sendKeys 发送到 tmux
+    try {
+      await sendKeys({
+        sessionName: executionSession.sessionName,
+        content: tmuxContent,
+        addNewline: true,
+      });
+      delivered = true;
+    } catch (error) {
+      console.error("[respondToInteractionRequest] sendKeys failed:", error);
+      return {
+        success: false,
+        error: sanitizeError(
+          error instanceof Error ? error : new Error(String(error)),
+          "TMUX_SEND_FAILED",
+        ),
+        code: "TMUX_SEND_FAILED",
+      };
+    }
+
+    // 3d. 如果任务处于 WAITING_FOR_INPUT，触发状态回转
+    if (task.status === "waiting_for_input") {
+      await transitionTask({
+        taskId,
+        toStatus: "running",
+        trigger: "user_response",
+        actorType: "user",
+        actorId: session.userId,
+        reason: `用户${responseType === "approve" ? "批准" : "驳回"}了 Agent 请求`,
+      });
+    }
+  }
+
+  // 4. 更新 InteractionRequest 记录
+  const newStatus = responseType === "delegate"
+    ? "delegated"
+    : responseType === "manual_takeover"
+      ? "takeover_pending"
+      : "responded";
+
+  await prisma.interactionRequest.update({
+    where: { id: interactionRequestId },
+    data: {
+      status: newStatus,
+      response: responseContent ?? (responseType === "reject" ? rejectionReason : null),
+      respondedAt: new Date(),
+      respondedBy: session.userId,
+    },
+  });
+
+  // 5. 触发 SSE 广播（通知所有连接的客户端）
+  sseBroadcaster.broadcast(taskId, {
+    type: "interaction_response",
+    data: {
+      requestId: interactionRequestId,
+      taskId,
+      responseType,
+      delivered,
+      timestamp: new Date().toISOString(),
+    },
+  });
+
+  // 6. 记录审计事件
+  await prisma.auditEvent.create({
+    data: {
+      workspaceId: task.workspaceId,
+      projectId: task.projectId,
+      taskId,
+      eventName: `interaction_response.${responseType}`,
+      occurredAt: new Date(),
+      payload: {
+        interactionRequestId,
+        agentRunId,
+        responseType,
+        responseContent: responseContent?.substring(0, 200) ?? null,
+        rejectionReason: rejectionReason ?? null,
+        delegateTo: delegateTo ?? null,
+        delivered,
+      },
+    },
+  });
+
+  // 7. 刷新 HeartbeatScheduler 记录
+  if (task.status === "waiting_for_input" && (responseType === "approve" || responseType === "reject")) {
+    const scheduler = getScheduler(taskId);
+    if (scheduler) {
+      scheduler.recordWithSnapshot({
+        status: "running",
+        currentStage: "运行中",
+        currentActivity: `用户${responseType === "approve" ? "批准" : "驳回"}了交互请求`,
+      });
+    }
+  }
+
+  return { success: true, data: { responseType, delivered } };
 }

@@ -17,15 +17,15 @@
 
 ## Deferred from: code review of 1-5-角色与权限模型 (2026-04-07)
 
-- **`update-member-role.ts:27-29` ADMIN 降级 OWNER 时错误语义不清** — 抛出 `CannotAssignOwnerRoleError` 但场景是"ADMIN 不能修改 OWNER 成员"，非"赋予 OWNER 角色"。需要新增专用错误类型。
-- **`types.ts:31` ProjectLimitExceededError 法语消息未迁移** — Error 构造函数中的 message 仍为法语，Story 1.9 已覆盖 `errors.ts` 的 ERROR_MESSAGES，但自定义 Error 类的构造消息未同步处理。
+- `**update-member-role.ts:27-29` ADMIN 降级 OWNER 时错误语义不清** — 抛出 `CannotAssignOwnerRoleError` 但场景是"ADMIN 不能修改 OWNER 成员"，非"赋予 OWNER 角色"。需要新增专用错误类型。
+- `**types.ts:31` ProjectLimitExceededError 法语消息未迁移** — Error 构造函数中的 message 仍为法语，Story 1.9 已覆盖 `errors.ts` 的 ERROR_MESSAGES，但自定义 Error 类的构造消息未同步处理。
 - **非事务性 OWNER 计数竞态条件** — 两个并发降级请求可能同时通过 ownerCount 检查。Story spec 已说明不使用 $transaction（Prisma 6.x 交互事务问题）。后续可考虑乐观锁或 DB 约束方案。
-- **`workspace-actions.ts` 认证/校验错误消息为英文** — "Not authenticated"/"Invalid input"/"Access denied" 为全项目一致的预存模式，非本 Story 引入。
+- `**workspace-actions.ts` 认证/校验错误消息为英文** — "Not authenticated"/"Invalid input"/"Access denied" 为全项目一致的预存模式，非本 Story 引入。
 
 ## Deferred from: code review of 1-6-团队级执行与治理策略配置 (2026-04-07)
 
 - **Server Action 中硬编码英文消息未使用中文** — `"Not authenticated"` / `"Invalid input"` / `"Access denied"` 等，所有已有 Actions 均如此，应整体统一迁移（与 1-5 defer 重复，确认为项目级技术债）
-- **`ProjectLimitExceededError` 构造函数消息为法语** — `types.ts:31`，预存问题（与 1-5 defer 重复，确认为项目级技术债）
+- `**ProjectLimitExceededError` 构造函数消息为法语** — `types.ts:31`，预存问题（与 1-5 defer 重复，确认为项目级技术债）
 
 ## Deferred from: code review of 1-7-项目导入与BMAD上下文关联 (2026-04-07)
 
@@ -36,3 +36,15 @@
 
 - **#5 `PERMISSIONS` 与 `ROLE_PERMISSIONS` 双源冗余** — `permissions.ts` 中 `PERMISSIONS` 常量（字符串数组）和 `ROLE_PERMISSIONS`（布尔映射）表达相同的权限矩阵。长期应统一为单一数据源，消除不一致风险。
 - **#6 `scopedProjectQuery` / `getAccessibleWorkspaceIds` 无调用方** — `data-guard.ts` 中两个函数当前无实际调用方，按 Spec 设计为后续 Epic 预留。Epic 2 实现时需评估是否仍适用或需调整。
+
+## Deferred from: code review of 5-2-长时间运行任务的状态连续与上下文保持 (2026-04-21)
+
+- **UI 未将 `executionTrail` 传递给 `StateTimeline`** — `task-detail-view.tsx:270` 调用 `StateTimeline` 时未传 `executionTrail` prop，导致 `getTaskExecutionTrail` 查询出的心跳时间线数据无法在 UI 展示。Story AC 未明确要求此 UI 链路，属分步迭代取舍。
+- `**StateTimeline` 测试 mock 缺少新增 props** — `task-detail-view.test.tsx` 中 mock 只包含 `events` 和 `currentStatus`，缺少新增的 `executionTrail`、`totalTrailCount`、`taskId` 参数。测试文件不在本次 diff 中。
+- `**recorder.ts` metadata 为 undefined 时写入空对象 `{}`** — `recorder.ts:28` 的 `(params.metadata ?? {})` 在 metadata 未传时写入空对象而非 null。DB 中无法区分"无 metadata"和"空 metadata"。属设计取舍，影响可忽略。
+
+## Deferred from: code review of 5-5-人工回应Agent交互请求 (2026-04-22)
+
+- **#1 timer 全局 Map 在 serverless/进程重启后无法恢复** — `timeout-scheduler.ts:14` 的模块级 `_timeoutTimers` Map 在 serverless（Vercel/Cloudflare Workers）或进程重启后为空。每实例独立维护，无法跨实例协调。可接受的设计取舍，需 serverless 架构确定后重新评估。
+- **#2 XSS content 未消毒** — `interaction-request-card.tsx:139` 的 `content` 来自 Agent 输出直接渲染。安全专项，应在全局 HTML sanitization pipeline 层面统一处理，非本 Story 范围。
+- **#3 AC3 升级机制缺失** — `interaction-detector.ts:119–153`，AC3 要求"触发提醒或升级"，但超时仅回转状态和广播 SSE，无通知发送。升级提醒由 Epic 7（通知系统）负责。
