@@ -56,6 +56,11 @@ import {
   prepareExecutionContext,
   buildBoundaryProfileFromContext,
 } from "./context";
+import {
+  HeartbeatScheduler,
+  registerScheduler,
+} from "@/lib/execution/heartbeat";
+import { startMonitor } from "@/lib/execution/monitor";
 
 export class LaunchServiceError extends Error {
   code: string;
@@ -297,153 +302,204 @@ export async function launchTask(input: LaunchTaskInput): Promise<LaunchTaskResu
     throw new LaunchServiceError(errorCode, errorMessage);
   }
 
-  // tmux succeeded — commit ExecutionSession and update run/task truth.
-  try {
-    // Build boundary profile for session metadata (even failures get a profile).
+    // tmux succeeded — commit ExecutionSession and update run/task truth.
+    // Single atomic transaction: creates session, transitions dispatched→starting→running.
+    // Separating into two $transaction calls is intentional so Step A (→starting) and
+    // Step B (→running) can each have a distinct TaskStateEvent record.
     const boundaryProfile = boundaryResult.profile;
     const boundaryMetadata = buildBoundaryProfilePayload(boundaryProfile);
 
-    const session = await prisma.executionSession.create({
-      data: {
-        workspaceId: input.workspaceId,
-        projectId: input.projectId,
-        taskId: input.taskId,
-        agentRunId: input.agentRunId,
-        transport: "tmux",
-        sessionName: tmuxResult.sessionName,
-        processPid: tmuxResult.panePid,
-        status: "running",
-        startedAt: now,
-        metadata: {
-          projectRoot: execRoot.canonicalPath,
-          agentCommand: launchConfig.launchCommand.command,
-          agentArgs: launchConfig.launchCommand.args,
-          ...(boundaryMetadata as object),
-        } satisfies Prisma.InputJsonValue,
-      },
-    });
-
     const sessionSummary = {
-      transport: "tmux",
-      sessionRef: tmuxResult.sessionName,
+      transport: "tmux" as const,
+      sessionRef: "", // populated below after session.id is known
       sessionName: tmuxResult.sessionName,
       processPid: tmuxResult.panePid,
       startedAt: now.toISOString(),
     };
 
-    // ── Phase 3: two-step task state transition (within the same transaction) ──
-    // Step A: dispatched → starting
-    if (!isValidTransition(task.status, "starting")) {
-      throw new LaunchServiceError(
-        "TASK_LAUNCH_NOT_DISPATCHED",
-        `状态机拒绝：从「${task.status}」不能转换到「starting」`,
-      );
-    }
-
-    await prisma.$transaction([
-      prisma.agentRun.update({
-        where: { id: input.agentRunId },
+    try {
+      const session = await prisma.executionSession.create({
         data: {
-          status: "running",
-          startedAt: now,
-          metadata: mergeRunMetadata(run.metadata, {
-            currentActivity: "执行监督器已创建 tmux 会话，Agent 正在运行。",
-            activeExecutionSession: sessionSummary,
-          }) as Prisma.InputJsonValue,
-        },
-      }),
-      prisma.task.update({
-        where: { id: input.taskId, status: task.status },
-        data: {
-          status: "starting",
-          currentStage: "启动中",
-          currentActivity: "执行监督器正在创建 tmux 会话",
-          nextStep: "正在启动 Agent",
-        },
-      }),
-      prisma.taskStateEvent.create({
-        data: {
-          taskId: input.taskId,
-          agentRunId: input.agentRunId,
-          fromStatus: task.status,
-          toStatus: "starting",
-          trigger: "system_start",
-          reason: "执行监督器开始创建会话",
-          actorType: "system",
-          actorId: null,
-          rejected: false,
-        },
-      }),
-    ], { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
-
-    // Step B: starting → running (atomic within the same db call)
-    await prisma.$transaction([
-      prisma.task.update({
-        where: { id: input.taskId, status: "starting" },
-        data: {
-          status: "running",
-          currentStage: "运行中",
-          currentActivity: "执行监督器已创建 tmux 会话，Agent 正在运行。",
-          nextStep: "Agent 正在运行，监督器持续监控中。",
-          metadata: mergeTaskMetadata(task.metadata, {
-            currentActivity: "执行监督器已创建 tmux 会话，Agent 正在运行。",
-            activeExecutionSession: sessionSummary,
-          }) as Prisma.InputJsonValue,
-        },
-      }),
-      prisma.taskStateEvent.create({
-        data: {
-          taskId: input.taskId,
-          agentRunId: input.agentRunId,
-          fromStatus: "starting",
-          toStatus: "running",
-          trigger: "agent_complete",
-          reason: "Agent 已成功启动",
-          actorType: "system",
-          actorId: null,
-          rejected: false,
-        },
-      }),
-      prisma.auditEvent.create({
-        data: buildExecutionSessionAuditEventData({
           workspaceId: input.workspaceId,
           projectId: input.projectId,
           taskId: input.taskId,
-          artifactId: task.sourceArtifactId,
-          eventName: EXECUTION_SESSION_AUDIT_EVENT_NAMES.started,
-          occurredAt: now,
-          payload: {
-            executionSessionId: session.id,
-            taskId: input.taskId,
-            agentRunId: input.agentRunId,
-            sessionName: tmuxResult!.sessionName,
-            processPid: tmuxResult!.panePid,
-            transport: "tmux",
+          agentRunId: input.agentRunId,
+          transport: "tmux",
+          sessionName: tmuxResult.sessionName,
+          processPid: tmuxResult.panePid,
+          status: "running",
+          startedAt: now,
+          metadata: {
             projectRoot: execRoot.canonicalPath,
+            agentCommand: launchConfig.launchCommand.command,
+            agentArgs: launchConfig.launchCommand.args,
+            heartbeatScheduler: {
+              intervalMs: 30_000,
+              startedAt: now.toISOString(),
+              pid: tmuxResult.panePid,
+            },
+            activeExecutionSession: {
+              id: "",
+              sessionName: tmuxResult.sessionName,
+              startedAt: now.toISOString(),
+            },
+            ...(boundaryMetadata as object),
+          } satisfies Prisma.InputJsonValue,
+        },
+      });
+
+      // Populate sessionRef (DB id) now that we have session.id.
+      sessionSummary.sessionRef = session.id;
+
+      // Step A: dispatched → starting
+      if (!isValidTransition(task.status, "starting")) {
+        throw new LaunchServiceError(
+          "TASK_LAUNCH_NOT_DISPATCHED",
+          `状态机拒绝：从「${task.status}」不能转换到「starting」`,
+        );
+      }
+
+      await prisma.$transaction([
+        prisma.agentRun.update({
+          where: { id: input.agentRunId },
+          data: {
+            status: "running",
+            startedAt: now,
+            metadata: mergeRunMetadata(run.metadata, {
+              currentActivity: "执行监督器已创建 tmux 会话，Agent 正在运行。",
+              activeExecutionSession: sessionSummary,
+            }) as Prisma.InputJsonValue,
           },
         }),
-      }),
-    ], { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+        prisma.task.update({
+          where: { id: input.taskId, status: task.status },
+          data: {
+            status: "starting",
+            currentStage: "启动中",
+            currentActivity: "执行监督器正在创建 tmux 会话",
+            nextStep: "正在启动 Agent",
+          },
+        }),
+        prisma.taskStateEvent.create({
+          data: {
+            taskId: input.taskId,
+            agentRunId: input.agentRunId,
+            fromStatus: task.status,
+            toStatus: "starting",
+            trigger: "system_start",
+            reason: "执行监督器开始创建会话",
+            actorType: "system",
+            actorId: null,
+            rejected: false,
+          },
+        }),
+      ], { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
-    return {
-      executionSessionId: session.id,
-      taskId: input.taskId,
-      agentRunId: input.agentRunId,
-      sessionName: tmuxResult.sessionName,
-      processPid: tmuxResult.panePid,
-      transport: "tmux",
-    };
-  } catch {
-    // Phase 3 failed — compensate: close the tmux session we just created.
-    const compError = await killSession(sessionName).catch((e: unknown) => e);
-    if (compError) {
-      console.warn(
-        `[launchTask] Phase 3 transaction failed and compensation (killSession) also failed. ` +
-        `Orphaned tmux session: ${sessionName}. Error: ${compError instanceof Error ? compError.message : String(compError)}`,
+      // Step B: starting → running
+      await prisma.$transaction([
+        prisma.task.update({
+          where: { id: input.taskId, status: "starting" },
+          data: {
+            status: "running",
+            currentStage: "运行中",
+            currentActivity: "执行监督器已创建 tmux 会话，Agent 正在运行。",
+            nextStep: "Agent 正在运行，监督器持续监控中。",
+            metadata: mergeTaskMetadata(task.metadata, {
+              currentActivity: "执行监督器已创建 tmux 会话，Agent 正在运行。",
+              activeExecutionSession: sessionSummary,
+            }) as Prisma.InputJsonValue,
+          },
+        }),
+        prisma.taskStateEvent.create({
+          data: {
+            taskId: input.taskId,
+            agentRunId: input.agentRunId,
+            fromStatus: "starting",
+            toStatus: "running",
+            trigger: "agent_complete",
+            reason: "Agent 已成功启动",
+            actorType: "system",
+            actorId: null,
+            rejected: false,
+          },
+        }),
+        prisma.auditEvent.create({
+          data: buildExecutionSessionAuditEventData({
+            workspaceId: input.workspaceId,
+            projectId: input.projectId,
+            taskId: input.taskId,
+            artifactId: task.sourceArtifactId,
+            eventName: EXECUTION_SESSION_AUDIT_EVENT_NAMES.started,
+            occurredAt: now,
+            payload: {
+              executionSessionId: session.id,
+              taskId: input.taskId,
+              agentRunId: input.agentRunId,
+              sessionName: tmuxResult.sessionName,
+              processPid: tmuxResult.panePid,
+              transport: "tmux",
+              projectRoot: execRoot.canonicalPath,
+            },
+          }),
+        }),
+      ], { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+
+      // Start heartbeat scheduler after task reaches "running" state.
+      // The scheduler runs in-process memory; if this process restarts,
+      // the scheduler re-initializes on next invocation — truth is always in DB.
+      const heartbeatScheduler = new HeartbeatScheduler(
+        session.id,
+        input.taskId,
+        input.agentRunId,
+        "running",
+        30_000,
       );
+      heartbeatScheduler.start({
+        executionSessionId: session.id,
+        taskId: input.taskId,
+        agentRunId: input.agentRunId,
+        status: "running",
+        currentStage: "运行中",
+        currentActivity: "Agent 正在执行任务",
+      });
+      registerScheduler(input.taskId, heartbeatScheduler);
+
+      // Start OutputMonitor to capture agent output and detect interaction requests.
+      // If the monitor fails to start, log a warning but do not block the launch.
+      // The heartbeat scheduler and SSE fallback provide coverage if output monitoring is unavailable.
+      try {
+        startMonitor({
+          sessionName: tmuxResult.sessionName,
+          taskId: input.taskId,
+          agentRunId: input.agentRunId,
+          pollIntervalMs: 5_000,
+        });
+      } catch (err) {
+        console.warn(
+          `[launchTask] OutputMonitor failed to start for task ${input.taskId}. ` +
+          `Agent output streaming may be unavailable. Error: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+
+      return {
+        executionSessionId: session.id,
+        taskId: input.taskId,
+        agentRunId: input.agentRunId,
+        sessionName: tmuxResult.sessionName,
+        processPid: tmuxResult.panePid,
+        transport: "tmux" as const,
+      };
+    } catch {
+      // Phase 3 failed — compensate: close the tmux session we just created.
+      const compError = await killSession(tmuxResult.sessionName).catch((e: unknown) => e);
+      if (compError) {
+        console.warn(
+          `[launchTask] Phase 3 transaction failed and compensation (killSession) also failed. ` +
+          `Orphaned tmux session: ${tmuxResult.sessionName}. Error: ${compError instanceof Error ? compError.message : String(compError)}`,
+        );
+      }
+      throw new LaunchServiceError("TASK_LAUNCH_COMMIT_FAILED", "执行会话启动失败，请稍后重试。");
     }
-    throw new LaunchServiceError("TASK_LAUNCH_COMMIT_FAILED", "执行会话启动失败，请稍后重试。");
-  }
 }
 
 async function recordLaunchFailure(opts: {

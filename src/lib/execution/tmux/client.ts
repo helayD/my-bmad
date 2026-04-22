@@ -233,3 +233,67 @@ function isNoSessionError(error: unknown): boolean {
   }
   return false;
 }
+
+// ── send-keys ─────────────────────────────────────────────────────────────────
+
+export interface TmuxSendKeysConfig {
+  sessionName: string;
+  /** 要发送的内容（文本或特殊键如 "Enter", "C-c"） */
+  content: string;
+  /** 是否在末尾自动追加换行符，默认 true */
+  addNewline?: boolean;
+}
+
+/**
+ * 向 tmux session 发送按键。
+ *
+ * 职责（Story 5.4 — FR27）：
+ * - 将用户输入的指令或确认信息注入到 tmux session
+ * - 支持发送普通文本（模拟键盘输入）和特殊按键（如 Enter）
+ * - 确保指令内容不被 shell 转义篡改
+ *
+ * 安全性：
+ * - sessionName 必须通过 isValidSessionName() 格式验证
+ * - 输入内容长度限制（单次发送不超过 10,000 字符）
+ * - 禁止发送二进制或控制字符序列
+ *
+ * @throws TmuxAdapterError on failure.
+ */
+export async function sendKeys(config: TmuxSendKeysConfig): Promise<void> {
+  const { sessionName, content, addNewline = true } = config;
+
+  // 1. 验证 sessionName 格式
+  if (!isValidSessionName(sessionName)) {
+    throw new Error(`Invalid session name "${sessionName}": must match /^[a-zA-Z0-9_-]+$/`);
+  }
+
+  // 2. 内容长度限制
+  const MAX_CONTENT_LENGTH = 10_000;
+  if (content.length > MAX_CONTENT_LENGTH) {
+    throw new Error(`发送内容超过长度限制（${MAX_CONTENT_LENGTH} 字符）`);
+  }
+
+  // 3. 禁止发送控制字符（\x00–\x1f 范围内，除 \x09 tab、\x0a 换行、\x0d 回车外）
+  const CONTROL_CHAR = /[\x00-\x08\x0b\x0c\x0e-\x1f]/;
+  if (CONTROL_CHAR.test(content)) {
+    throw new Error("发送内容包含非法控制字符");
+  }
+
+  // 4. 直接执行 send-keys，不做预检查（hasSession 预检查在竞态窗口内无效，
+  //    tmux send-keys 本身会在 session 不存在时返回错误，错误会被正确映射）
+  const textToSend = addNewline ? `${content}\n` : content;
+
+  try {
+    await execFileAsync("tmux", [
+      "send-keys",
+      "-t", sessionName,
+      "--",    // 分隔符，后续参数不会被解释为选项
+      textToSend,
+    ], { timeout: 5_000 });
+  } catch (error) {
+    throw mapTmuxError(TMUX_ERROR_CODES.TMUX_SEND_KEYS_FAILED, {
+      sessionName,
+      stderr: error instanceof Error ? error.message : undefined,
+    });
+  }
+}

@@ -18,6 +18,12 @@ import { prisma } from "@/lib/db/client";
 import { killSession } from "@/lib/execution/tmux";
 import { onSessionEnded } from "./admission";
 import { isValidTransition } from "@/lib/execution/state-machine/validator";
+import {
+  getScheduler,
+  unregisterScheduler,
+  recordHeartbeat,
+} from "@/lib/execution/heartbeat";
+import { stopMonitor } from "@/lib/execution/monitor";
 
 export class LifecycleServiceError extends Error {
   code: string;
@@ -89,18 +95,49 @@ export async function endSession(input: EndSessionInput): Promise<EndSessionResu
     };
   }
 
+  // Stop the heartbeat scheduler and record final heartbeat.
+  const scheduler = getScheduler(input.taskId);
+  if (scheduler) {
+    try {
+      scheduler.stop();
+    } catch {
+      console.warn(`[endSession] scheduler.stop() failed for task ${input.taskId}`);
+    }
+    try {
+      unregisterScheduler(input.taskId);
+    } catch {
+      console.warn(`[endSession] unregisterScheduler() failed for task ${input.taskId}`);
+    }
+  }
+  stopMonitor(input.taskId);
+  // Record the final heartbeat with termination status.
+  const finalStatus = input.reason === "completed" ? "completed" : "terminated";
+  try {
+    await recordHeartbeat({
+      executionSessionId: session.id,
+      taskId: input.taskId,
+      agentRunId: input.agentRunId,
+      status: finalStatus,
+      currentStage: input.reason === "completed" ? "已完成" : "已终止",
+      currentActivity: input.reason === "completed"
+        ? "执行会话已正常结束。"
+        : `执行会话已被终止：${input.reasonSummary ?? ""}`,
+    });
+  } catch {
+    // Best-effort: final heartbeat failure should not block session cleanup.
+  }
+
   // Attempt tmux cleanup — best-effort; don't fail the DB transition.
   await killSession(session.sessionName).catch(() => { /* best-effort */ });
 
-  const resolvedStatus = input.reason === "completed" ? "completed" : "terminated";
-  const updateData = resolvedStatus === "completed"
+  const updateData = finalStatus === "completed"
     ? { completedAt: now }
     : { terminatedAt: now, terminationReasonCode: input.reasonCode, terminationReasonSummary: input.reasonSummary };
 
   await prisma.executionSession.update({
     where: { id: session.id },
     data: {
-      status: resolvedStatus,
+      status: finalStatus,
       ...updateData,
     },
   });

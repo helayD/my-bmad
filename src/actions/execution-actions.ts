@@ -293,3 +293,187 @@ function revalidateExecutionPaths(
   revalidatePath(`/workspace/${workspaceSlug}/project/${projectSlug}`);
   revalidatePath(`/workspace/${workspaceSlug}/project/${projectSlug}/tasks/${taskId}`);
 }
+
+// ── Supplementary Input ────────────────────────────────────────────────────────
+
+import { prisma } from "@/lib/db/client";
+import { transitionTask } from "@/lib/execution/state-machine";
+import { sendKeys } from "@/lib/execution/tmux";
+import { getScheduler } from "@/lib/execution/heartbeat";
+
+const SubmitSupplementaryInputSchema = z.object({
+  taskId: z.string().min(1, "任务 ID 不能为空"),
+  agentRunId: z.string().min(1, "Agent Run ID 不能为空"),
+  /** 用户输入的补充指令内容 */
+  content: z.string()
+    .min(1, "指令内容不能为空")
+    .max(10_000, "指令内容不能超过 10,000 字符")
+    .refine((val) => val.trim().length > 0, {
+      message: "指令内容不能为纯空白",
+    }),
+  /** 指令类型：supplementary（补充指令）、confirmation（确认）、rejection（驳回） */
+  inputType: z.enum(["supplementary", "confirmation", "rejection"]).default("supplementary"),
+  /** 可选：关联的 InteractionRequest ID */
+  interactionRequestId: z.string().optional(),
+});
+
+export async function submitSupplementaryInput(
+  raw: z.infer<typeof SubmitSupplementaryInputSchema>,
+): Promise<ActionResult<{ success: true; delivered: boolean }>> {
+  const parsed = SubmitSupplementaryInputSchema.safeParse(raw);
+  if (!parsed.success) {
+    return {
+      success: false,
+      error: sanitizeError(new Error(parsed.error.message), "VALIDATION_ERROR"),
+      code: "VALIDATION_ERROR",
+    };
+  }
+
+  const { taskId, agentRunId, content, inputType, interactionRequestId } = parsed.data;
+
+  // 权限校验
+  const session = await getAuthenticatedSession();
+  if (!session) {
+    return { success: false, error: sanitizeError(null, "UNAUTHORIZED"), code: "UNAUTHORIZED" };
+  }
+
+  // 1. 查询任务状态
+  const task = await prisma.task.findUnique({
+    where: { id: taskId },
+    select: {
+      id: true,
+      status: true,
+      currentAgentRunId: true,
+      workspaceId: true,
+      projectId: true,
+    },
+  });
+
+  if (!task) {
+    return { success: false, error: "任务不存在", code: "TASK_NOT_FOUND" };
+  }
+
+  const accessResult = await requireProjectAccess(
+    task.workspaceId,
+    task.projectId,
+    session.userId,
+    "execute",
+  );
+  if (!accessResult.success) {
+    return accessResult;
+  }
+
+  if (task.currentAgentRunId !== agentRunId) {
+    return { success: false, error: "Agent Run 与当前任务不匹配", code: "RUN_MISMATCH" };
+  }
+
+  // 2. 状态验证：RUNNING 或 WAITING_FOR_INPUT 才可发送
+  const ALLOWED_STATUSES = ["running", "waiting_for_input"];
+  if (!ALLOWED_STATUSES.includes(task.status)) {
+    return {
+      success: false,
+      error: `当前任务状态「${task.status}」不支持发送指令`,
+      code: "INVALID_TASK_STATUS",
+    };
+  }
+
+  // 3. 查询 ExecutionSession 获取 sessionName
+  const executionSession = await prisma.executionSession.findUnique({
+    where: { agentRunId },
+    select: { id: true, sessionName: true, status: true },
+  });
+
+  if (!executionSession) {
+    return { success: false, error: "找不到执行会话记录", code: "SESSION_NOT_FOUND" };
+  }
+
+  if (executionSession.status !== "running") {
+    return {
+      success: false,
+      error: "执行会话已结束，无法发送指令",
+      code: "SESSION_ENDED",
+    };
+  }
+
+  // 4. 通过 sendKeys 发送到 tmux
+  let delivered = false;
+  try {
+    await sendKeys({
+      sessionName: executionSession.sessionName,
+      content,
+      addNewline: true,
+    });
+    delivered = true;
+  } catch (error) {
+    console.error("[submitSupplementaryInput] sendKeys failed:", error);
+    return {
+      success: false,
+      error: sanitizeError(
+        error instanceof Error ? error : new Error(String(error)),
+        "TMUX_SEND_FAILED",
+      ),
+      code: "TMUX_SEND_FAILED",
+    };
+  }
+
+  // 5. 更新 InteractionRequest 记录（复用现有模型）
+  if (interactionRequestId) {
+    await prisma.interactionRequest.updateMany({
+      where: { id: interactionRequestId, taskId },
+      data: {
+        status: "responded",
+        response: content,
+        respondedAt: new Date(),
+      },
+    }).catch(() => { /* ignore if not found */ });
+  }
+
+  // 6. 如果任务处于 WAITING_FOR_INPUT，触发状态变更为 RUNNING
+  let taskStatusAfter = task.status;
+  if (task.status === "waiting_for_input") {
+    const transitionResult = await transitionTask({
+      taskId,
+      toStatus: "running",
+      trigger: "user_response",
+      actorType: "user",
+      reason: "用户响应了 Agent 请求",
+    });
+
+    if (!transitionResult.success) {
+      console.warn("[submitSupplementaryInput] 状态变更失败:", transitionResult.error);
+    } else {
+      taskStatusAfter = "running";
+    }
+
+    // 刷新 HeartbeatScheduler 记录
+    const scheduler = getScheduler(taskId);
+    if (scheduler) {
+      scheduler.recordWithSnapshot({
+        status: taskStatusAfter,
+        currentStage: "运行中",
+        currentActivity: "等待 Agent 响应补充指令……",
+      });
+    }
+  }
+
+  // 7. 记录审计事件
+  await prisma.auditEvent.create({
+    data: {
+      workspaceId: task.workspaceId,
+      projectId: task.projectId,
+      taskId,
+      eventName: "supplementary_input.submitted",
+      occurredAt: new Date(),
+      payload: {
+        agentRunId,
+        inputType,
+        contentLength: content.length,
+        interactionRequestId: interactionRequestId ?? null,
+        taskStatusBefore: task.status,
+        taskStatusAfter,
+      },
+    },
+  });
+
+  return { success: true, data: { success: true, delivered } };
+}
